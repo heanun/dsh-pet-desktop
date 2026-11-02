@@ -6,7 +6,7 @@
  * @module dsh-pet/src/shared/menu/tree
  */
 import { DISPLAY_HOTKEY_HINTS, DISPLAY_ORDER } from '../display-hotkey.ts';
-import { type Animations, type Category, type PetDisplay } from '../types.ts';
+import { type Animations, type Category } from '../types.ts';
 import type { MenuBranch, MenuLeaf, MenuMoreItem, MenuNode } from './types.ts';
 
 /** 睡着时仍然放行的菜单动作：维护类、「叫醒它」本身，以及第三方菜单项。
@@ -18,18 +18,16 @@ const SLEEP_ALLOWED_ACTIONS: readonly string[] = ['sleep', 'wake', 'home', 'set-
 export const isSleepAllowedAction = (action: string | undefined): boolean =>
   action !== undefined && SLEEP_ALLOWED_ACTIONS.includes(action);
 
-/** 四个显示位置的菜单文案；键是 {@link DISPLAY_ORDER} 的元素，顺序以那边为准。 */
-const DISPLAY_LABELS: Readonly<Record<PetDisplay, string>> = {
-  web: '仅网页',
+/** 三个桌面显示档的菜单文案；键是 {@link DISPLAY_ORDER} 的元素，顺序以那边为准。 */
+const DISPLAY_LABELS = {
   desktop: '仅桌面',
   both: '两者',
   none: '都不',
-};
+} as const;
 
-/** 「显示位置」子菜单：两端注入同一份，文案与设置页的显示位置下拉框一致。
- *  两端各写一份必然漂移，而这一项语义对称：桌面端用它把宠物送走，浏览器端用它送到桌面。
- *  「都不」是单向门（恢复入口是设置页），其余三个值都能从某一端改回来。
- *  右侧键帽由 `1`-`4` 数字键的同一份顺序派生，改顺序只改 {@link DISPLAY_ORDER}。 */
+/** 「显示位置」子菜单：两端注入同一份，只提供桌面可见性与置顶档位。
+ *  「都不」是单向门（恢复入口是设置页或托盘）。
+ *  右侧键帽由 `1`-`3` 数字键的同一份顺序派生，改顺序只改 {@link DISPLAY_ORDER}。 */
 export const displayMenuBranch = (): MenuBranch => ({
   label: '显示位置',
   children: DISPLAY_ORDER.map((display, index): MenuLeaf => ({

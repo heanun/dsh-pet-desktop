@@ -55,18 +55,18 @@ function fixture(initial: { display: string; trayEnabled?: boolean }): {
 const quietLog = { info: () => {}, warn: () => {} } as unknown as Parameters<typeof createDesktopPets>[0]['log'];
 
 describe('createDesktopPets —— 判定必须现读配置', () => {
-  test('display=web：判定为无桌面宠物', () => {
+  test('旧 display=web：合并为 both，桌面宠物保持可见', () => {
     const f = fixture({ display: 'web' });
     try {
       const pets = createDesktopPets({ configPaths: f.paths, effectivePetList: () => [], log: quietLog });
-      assert.equal(pets.getHasDesktopPet(), false);
+      assert.equal(pets.getHasDesktopPet(), true);
     } finally {
       f.cleanup();
     }
   });
 
   test('createDesktopPets 之后改配置：下一次调用立刻读到新值（不需要任何刷新）', () => {
-    const f = fixture({ display: 'web' });
+    const f = fixture({ display: 'none' });
     try {
       const pets = createDesktopPets({ configPaths: f.paths, effectivePetList: () => [], log: quietLog });
       assert.equal(pets.getHasDesktopPet(), false, '前提：创建时没有桌面宠物');
@@ -78,12 +78,12 @@ describe('createDesktopPets —— 判定必须现读配置', () => {
     }
   });
 
-  test('改回 web 同样立刻生效', () => {
+  test('改成 none 同样立刻生效', () => {
     const f = fixture({ display: 'both' });
     try {
       const pets = createDesktopPets({ configPaths: f.paths, effectivePetList: () => [], log: quietLog });
       assert.equal(pets.getHasDesktopPet(), true);
-      f.write({ display: 'web' });
+      f.write({ display: 'none' });
       assert.equal(pets.getHasDesktopPet(), false);
     } finally {
       f.cleanup();
@@ -110,6 +110,27 @@ describe('createDesktopPets —— 判定必须现读配置', () => {
       assert.equal(pets.getHasDesktopPet(), false, '读不出来宁可不 spawn');
       assert.equal(pets.getTrayOn(), true, '保守保留托盘');
       assert.deepEqual(pets.desktopPetList(), []);
+    } finally {
+      f.cleanup();
+    }
+  });
+
+  test('desktopPetList 保留 display，供 helper 区分仅桌面与双端置顶行为', () => {
+    const f = fixture({ display: 'desktop' });
+    try {
+      const pets = createDesktopPets({
+        configPaths: f.paths,
+        effectivePetList: () => [
+          { id: 'desktop', size: 200, display: 'desktop' },
+          { id: 'both', size: 240, display: 'both' },
+          { id: 'web', size: 180, display: 'web' },
+        ],
+        log: quietLog,
+      });
+      assert.deepEqual(pets.desktopPetList(), [
+        { id: 'desktop', size: 200, display: 'desktop' },
+        { id: 'both', size: 240, display: 'both' },
+      ]);
     } finally {
       f.cleanup();
     }

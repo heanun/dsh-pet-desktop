@@ -171,15 +171,15 @@ async function boot(): Promise<void> {
 }
 
 /**
- * 桌面可见宠物清单（[{id,size}]）。
+ * 桌面可见宠物清单（[{id,size,display}]）。
  * 与 `src/host/index.ts` 的 isDesktopVisible 同口径：display 含 desktop/both 才建窗。
  */
-function desktopPets(): Array<{ id: string; size: number }> {
+function desktopPets(): Array<{ id: string; size: number; display: string }> {
   try {
     const pets = flattenPetList(readAllConfig(configPathsFor(packageRoot, dshHomeDir())));
     const desktop = pets
       .filter((pet) => pet.display === 'desktop' || pet.display === 'both')
-      .map((pet) => ({ id: String(pet.id), size: Number(pet.size) }));
+      .map((pet) => ({ id: String(pet.id), size: Number(pet.size), display: String(pet.display) }));
     log(`桌面宠物 ${JSON.stringify(desktop)}`);
     return desktop;
   } catch (error) {

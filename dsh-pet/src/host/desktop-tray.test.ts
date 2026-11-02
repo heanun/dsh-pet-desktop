@@ -104,9 +104,9 @@ describe('createTray —— 勾选与点击', () => {
     );
   });
 
-  test('点一下写回相反的一档：both→web，web→both，desktop→none，none→desktop', async () => {
+  test('点一下切换桌面可见性，不再写回仅网页档位', async () => {
     const cases: ReadonlyArray<readonly [string, string]> = [
-      ['both', 'web'],
+      ['both', 'none'],
       ['web', 'both'],
       ['desktop', 'none'],
       ['none', 'desktop'],
@@ -121,7 +121,7 @@ describe('createTray —— 勾选与点击', () => {
       assert.equal(
         (JSON.parse(bodies[0] ?? '{}') as { display?: string }).display,
         to,
-        `display=${from} 应写成 ${to}（浏览器位保持不动）`,
+        `display=${from} 应写成 ${to}，不得产生仅网页档位`,
       );
     }
   });
@@ -178,7 +178,7 @@ describe('createTray —— 重建后刷新', () => {
     const { tray, menus } = harness({ pets });
     await tray.start();
     assert.equal(lastMenu(menus)[0].checked, true);
-    pets[0] = { label: 'a', id: 'a', display: 'web' };
+    pets[0] = { label: 'a', id: 'a', display: 'none' };
     await tray.refresh();
     assert.equal(menus.length, 2, 'refresh 应重新设置一次菜单');
     assert.equal(lastMenu(menus)[0].checked, false, '配置变了勾选要跟着变');

@@ -44,6 +44,27 @@ describe('sendChat 请求体', () => {
     }
   });
 
+  test('成功响应：带回回复正文供桌面当前轮展示', async () => {
+    const captured = captureFetch({ ok: true, text: '我在' });
+    try {
+      const state = await sendChat('http://127.0.0.1/dsh-pet-7340/chat', '在吗');
+      assert.deepEqual(state, { ok: true, text: '我在' });
+    } finally {
+      captured.restore();
+    }
+  });
+
+  test('会话命令响应：带回经过校验的 effect', async () => {
+    const effect = { kind: 'new', sessionId: 's1' };
+    const captured = captureFetch({ ok: true, text: '已新建', effect });
+    try {
+      const state = await sendChat('http://127.0.0.1/dsh-pet-7340/chat', 'new');
+      assert.deepEqual(state, { ok: true, text: '已新建', effect });
+    } finally {
+      captured.restore();
+    }
+  });
+
   test('带图：多一个 attachment，字段只有 mediaType 与 data', async () => {
     const captured = captureFetch({ ok: true });
     const attachment = { mediaType: 'image/jpeg', data: 'AAAA' };

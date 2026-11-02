@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * 打包双击可运行的桌宠应用，是 electron-builder 的薄封装，产物只有「解包目录」一种形态。
- * 只出解包目录：portable 是 NSIS 自解压壳，每次启动都要把整个应用目录解压到 %TEMP%，对 Electron 体量得不偿失；
- * nsis 安装包对自用与绿色分发没有增量价值，故不提供。
+ * 打包双击可运行的桌宠应用，是 electron-builder 的薄封装，只出 Windows portable 单文件绿色版。
+ * 不接受其他 target，避免同一入口产出分发方式不同的产物。
  * 不下载 Electron：默认只认本机已解压目录，找不到就明确失败，避免本地开发被静默拉走一百多兆；
  * 只有设了 DSH_PET_ALLOW_ELECTRON_DOWNLOAD=1 才交回 electron-builder 自行下载（CI 用）。
  * 打包二进制统一走 npmmirror 镜像，因为本机 github.com 不通。
@@ -54,9 +53,9 @@ function resolveElectronDist() {
   process.exit(1);
 }
 
-const target = process.argv[2] ?? 'dir';
-if (target !== 'dir') {
-  console.error(`[dist] 未知目标：${target}（只出解包目录，直接运行 node scripts/dist.mjs）`);
+const target = process.argv[2] ?? 'portable';
+if (target !== 'portable') {
+  console.error(`[dist] 未知目标：${target}（只支持 portable，直接运行 node scripts/dist.mjs）`);
   process.exit(2);
 }
 

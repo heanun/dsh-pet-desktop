@@ -159,12 +159,12 @@ export function createDesktopSpawn(deps: DesktopSpawnInput) {
     if (helper || electronEnsure || disposed) return;
     if (!getHasDesktopPet() && !(desktopModeEverActive && getTrayOn())) {
       // 诊断日志（issue #168）：这条短路不打日志，就是「桌面模式凭空消失：无进程、无目录、无提示」
-      // 的直接成因。用 info 而非 warn——纯网页用户这是正常状态；只打一次避免刷屏。
+      // 的直接成因。用 info 而非 warn——不显示桌面宠物是正常配置；只打一次避免刷屏。
       // 托盘关掉后这里也会命中：没人需要那个图标，空常驻没有意义。
       if (!noDesktopSkipped) {
         noDesktopSkipped = true;
         log.info(
-          `[dsh-pet] 无桌面宠物（display 均为 web/none）且无需保留托盘（tray=${getTrayOn()}），已跳过桌面 Helper 启动`,
+          `[dsh-pet] 无桌面宠物（display 均为 none）且无需保留托盘（tray=${getTrayOn()}），已跳过桌面 Helper 启动`,
         );
       }
       return;
@@ -176,7 +176,7 @@ export function createDesktopSpawn(deps: DesktopSpawnInput) {
         displayWarned = true;
         log.warn(
           '[dsh-pet] 未检测到图形显示环境（DISPLAY/WAYLAND_DISPLAY 均为空），已跳过桌面宠物。' +
-            '浏览器内宠物不受影响；如需在服务器上启用桌面模式，请配置 Xvfb 后设置 DSH_PET_DESKTOP_FORCE=1。',
+            '如需在服务器上启用桌面模式，请配置 Xvfb 后设置 DSH_PET_DESKTOP_FORCE=1。',
         );
       }
       return;

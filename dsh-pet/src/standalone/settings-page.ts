@@ -8,7 +8,6 @@
  */
 import { CORNER_SET } from '../host/config/constants.ts';
 import { VOICES } from '../host/voice/voices.ts';
-import { PET_DISPLAYS } from '../shared/config.ts';
 import { ROUTE_SEGMENT } from '../shared/constants.ts';
 import { DEFAULT_FONT, FONT_PRESETS } from '../shared/fonts.ts';
 import { DEFAULT_PHYSICS } from '../shared/physics.ts';
@@ -30,7 +29,6 @@ export const settingsScript = [
   coreScript(ROUTE_SEGMENT, {
     voices: VOICES.map((voice) => ({ id: voice.id, name: voice.name, tag: voice.tag })),
     fonts: FONT_PRESETS.map((preset) => preset.id),
-    displays: PET_DISPLAYS,
     corners: [...CORNER_SET],
     physics: DEFAULT_PHYSICS,
     font: DEFAULT_FONT,

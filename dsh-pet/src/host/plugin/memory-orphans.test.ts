@@ -14,10 +14,8 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { createMemoryOrphans } from './memory-orphans.ts';
+import { normalizeChatMemory, type ChatMemoryFile } from '../chat-sessions.ts';
 import type { ConfigPaths } from '../config.ts';
-
-type Messages = { role: 'user' | 'assistant'; content: string; ts: number }[];
-type MemoryFile = Record<string, Record<string, { messages: Messages }>>;
 
 /** 临时工作区：默认配置指回仓库，用户层为空。 */
 function tempConfig(): { configPaths: ConfigPaths; clean: () => void } {
@@ -32,9 +30,9 @@ function tempConfig(): { configPaths: ConfigPaths; clean: () => void } {
 }
 
 /** 造一份带记忆替身的孤儿模块：读写都落在同一个对象上。 */
-function makeOrphans(initial: MemoryFile) {
+function makeOrphans(initial: unknown) {
   const config = tempConfig();
-  const mem = structuredClone(initial);
+  const mem: ChatMemoryFile = normalizeChatMemory(structuredClone(initial));
   const orphans = createMemoryOrphans({
     configPaths: config.configPaths,
     readMemory: async () => mem,
@@ -98,12 +96,43 @@ describe('createMemoryOrphans —— 已删宠物的残留历史', () => {
     }
   });
 
+  test('多会话孤儿：聚合所有 sessions 的条数与最大时间戳，清理也计入全部', async () => {
+    const suite = makeOrphans({
+      main: {
+        gone: {
+          activeSessionId: 'a',
+          sessions: [
+            { id: 'a', title: '甲', createdAt: 1, updatedAt: 2, messages: [{ role: 'user', content: '一', ts: 20 }] },
+            {
+              id: 'b',
+              title: '乙',
+              createdAt: 3,
+              updatedAt: 4,
+              messages: [
+                { role: 'user', content: '二', ts: 30 },
+                { role: 'assistant', content: '答', ts: 30 },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    try {
+      assert.deepEqual(await suite.orphans.orphanHistory(), [
+        { entry: 'main', petId: 'gone', messages: 3, lastTs: 30 },
+      ]);
+      assert.deepEqual(await suite.orphans.deleteOrphans(), { ok: true, pets: 1, messages: 3 });
+    } finally {
+      suite.clean();
+    }
+  });
+
   test('没有孤儿 → 不写文件，计数全 0', async () => {
     let writes = 0;
     const config = tempConfig();
     const orphans = createMemoryOrphans({
       configPaths: config.configPaths,
-      readMemory: async () => ({ main: { main: { messages: [] } } }),
+      readMemory: async () => normalizeChatMemory({ main: { main: { messages: [] } } }),
       writeMemory: async () => {
         writes += 1;
       },

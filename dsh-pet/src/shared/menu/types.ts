@@ -28,7 +28,7 @@ export interface MenuLeaf {
     | 'sleep'
     | 'wake'
     | 'third-party';
-  /** set-display 的目标显示位置（与设置页的下拉框同一套取值） */
+  /** set-display 的目标显示位置；web 仅作旧协议值保留。 */
   display?: PetDisplay;
   /** third-party：注册它的 owner（身份键，只用于回传，不显示）；同一个 owner 的项收在同一分组下，
    *  只有一项时跳过这层直接平铺。 */

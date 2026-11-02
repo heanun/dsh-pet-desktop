@@ -4,6 +4,8 @@
  * 让 `shared/index.ts`（打包成 window.PetShared）与浏览器入口各取所需。
  * @module dsh-pet/src/shared/chat
  */
+export type { ChatCommand, ChatCommandEffect, ChatSessionSummary } from './commands.ts';
+export { parseChatCommand, parseChatCommandEffect } from './commands.ts';
 export type { ChatDialogMount, ChatDialogOptions } from './dialog.ts';
 export { mountChatDialog } from './dialog.ts';
 export type { EncodedImage } from './encode.ts';

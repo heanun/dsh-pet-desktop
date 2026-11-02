@@ -90,7 +90,7 @@ function createWindows({
     return buildDeskGeometry(screen.getAllDisplays(), screen.getPrimaryDisplay().id, process.platform);
   }
 
-  /** 桌面宠物列表（[{id,size,index}]）：宿主经 DSH_PET_PETS 透传；空数组表示明确不建窗。 */
+  /** 桌面宠物列表（[{id,size,display,index}]）：宿主经 DSH_PET_PETS 透传；空数组表示明确不建窗。 */
   function petsFromEnv() {
     try {
       const arr = JSON.parse(process.env.DSH_PET_PETS || '');
@@ -98,13 +98,14 @@ function createWindows({
         return arr.map((pet, index) => ({
           id: String(pet?.id ?? `pet-${index}`),
           size: Number(pet?.size) > 0 ? Number(pet.size) : 462,
+          display: pet?.display ?? 'both',
           index,
         }));
       }
     } catch {
       /* fallthrough */
     }
-    return [{ id: 'main', size: 462, index: 0 }];
+    return [{ id: 'main', size: 462, display: 'both', index: 0 }];
   }
 
   /** 窗口初始尺寸 = 宠物包围盒 + 四周外扩余量；渲染端首帧会按真实配置精确覆盖。 */
@@ -187,8 +188,8 @@ function createWindows({
     return () => clearInterval(topmostTimer);
   }
 
-  /** 建窗口时的固定参数（与渲染端约定的透明置顶小窗）。 */
-  function windowOptions(size, area) {
+  /** 建窗口时的固定参数（与渲染端约定的透明小窗）；仅桌面模式不进入置顶带。 */
+  function windowOptions(size, area, display) {
     return {
       ...size,
       x: area.x, // 初始左上角；renderer 首帧按配置角落/位置校正
@@ -199,7 +200,7 @@ function createWindows({
       enableLargerThanScreen: true,
       transparent: true,
       frame: false,
-      alwaysOnTop: true,
+      alwaysOnTop: display !== 'desktop',
       skipTaskbar: true,
       // 任务栏按钮万一还是冒出来（唤醒后重建），至少显示宠物图标而不是 Electron 默认原子图
       icon: path.join(helperDir, '..', '..', 'assets', 'logo.png'),
@@ -220,8 +221,9 @@ function createWindows({
 
   /** 一只宠物一个窗口；返回窗口，泵与清理都在这里装好。 */
   function createPetWindow(pet, geo, scale) {
-    const win = new BrowserWindow(windowOptions(petWindowSize(pet.size * scale), geo.hull));
-    win.setAlwaysOnTop(true, topmostLevel(process.platform));
+    const shouldKeepTopmost = pet.display !== 'desktop';
+    const win = new BrowserWindow(windowOptions(petWindowSize(pet.size * scale), geo.hull, pet.display));
+    if (shouldKeepTopmost) win.setAlwaysOnTop(true, topmostLevel(process.platform));
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
     // 被遮挡的窗口默认暂停渲染，表现成「消失」；关掉后台节流让它持续渲染
     win.webContents.setBackgroundThrottling(false);
@@ -242,7 +244,7 @@ function createWindows({
       }, 400);
     });
     const stopPointerFallback = startPointerFallback(win);
-    const stopTopmostWatchdog = startTopmostWatchdog(win);
+    const stopTopmostWatchdog = shouldKeepTopmost ? startTopmostWatchdog(win) : () => {};
     win.on('closed', () => {
       stopPointerFallback();
       stopTopmostWatchdog();

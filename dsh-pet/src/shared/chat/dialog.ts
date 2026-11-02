@@ -1,15 +1,16 @@
 /**
  * 对话输入弹窗的挂载与生命周期：定位、关闭、发送。
  * 两端共用同一份实现；它只经注入的 baseUrl/surface 说话，不读配置、不读写记忆。
- * 回复不经响应回传展示：POST 的响应里也有正文，但本组件不用它——回复统一从 /state 的
- * pets.<id>.say 走气泡展示，onSent 只用来催促调用方取一拍。
+ * 桌面端把响应正文追加到当前轮并保留弹窗；网页端仍由 /state 气泡展示回复。
  * @module dsh-pet/src/shared/chat/dialog
  */
 import { ROUTE_PATH } from '../constants.ts';
+import { parseChatCommand } from './commands.ts';
 import { createChatDom } from './dom.ts';
 import type { EncodedImage } from './encode.ts';
-import { sendChat, type ChatAttachment } from './send.ts';
-import { injectChatCss } from './styles.ts';
+import { sendChat, type ChatAttachment, type ChatSendState } from './send.ts';
+import { CHAT_TRANSCRIPT_MAX_H, injectChatCss } from './styles.ts';
+import { createChatTranscript } from './transcript.ts';
 
 /** 对话弹窗挂载句柄。 */
 export interface ChatDialogMount {
@@ -38,8 +39,10 @@ interface SendBinding {
   /** 已含 `?pet=&surface=` 的对话地址。 */
   readonly url: string;
   readonly isClosed: () => boolean;
-  /** 发送成功（弹窗尚未关闭）。 */
-  readonly onOk: () => void;
+  /** 发送开始时记录普通提问；会话命令不进入问答区。 */
+  readonly onStart?: (text: string) => void;
+  /** 发送成功并处理普通回复或会话效果。 */
+  readonly onOk: (state: Extract<ChatSendState, { ok: true }>) => void | Promise<void>;
   /** 待发送的图片；没有就发纯文本。 */
   readonly attachment: () => ChatAttachment | undefined;
   /** 是否还在压缩图片：是的话先提示，别发出去把图丢掉。 */
@@ -65,43 +68,46 @@ function bindDismiss(root: HTMLElement, isClosed: () => boolean, onDismiss: () =
   };
 }
 
-/** 回车发送：成功后回调、失败把原因写进 err 行，不伪造回复。 */
-function bindSend(binding: SendBinding): void {
+/** 回车或会话列表发送：成功后等待效果处理，失败把原因写进 err 行。 */
+function bindSend(binding: SendBinding): (textOverride?: string) => Promise<void> {
   let sending = false;
-  const doSend = (): void => {
+  const doSend = async (textOverride?: string): Promise<void> => {
     if (binding.isClosed() || sending) return;
     if (binding.isEncoding()) {
       binding.notify('图片还在处理，稍等一下');
       return;
     }
-    const text = binding.input.value.trim();
+    const text = (textOverride ?? binding.input.value).trim();
     if (!text) return;
+    const attachment = textOverride === undefined ? binding.attachment() : undefined;
     sending = true;
     binding.input.disabled = true;
-    sendChat(binding.url, text, binding.attachment())
-      .then((state) => {
-        if (state.ok) binding.onOk();
-        else {
-          binding.err.textContent = '对话失败：' + (state.message ?? state.reason);
-          binding.err.style.display = 'block';
-        }
-      })
-      .catch((e) => {
-        binding.err.textContent = '对话异常：' + String(e && e.message ? e.message : e);
+    binding.err.style.display = 'none';
+    binding.onStart?.(text);
+    try {
+      const state = await sendChat(binding.url, text, attachment);
+      if (state.ok) await binding.onOk(state);
+      else {
+        binding.err.textContent = '对话失败：' + (state.message ?? state.reason);
         binding.err.style.display = 'block';
-      })
-      .finally(() => {
-        sending = false;
-        binding.input.disabled = false;
-        if (!binding.isClosed()) binding.input.focus();
-      });
+      }
+    } catch (error) {
+      binding.err.textContent =
+        '对话异常：' + String(error && (error as Error).message ? (error as Error).message : error);
+      binding.err.style.display = 'block';
+    } finally {
+      sending = false;
+      binding.input.disabled = false;
+      if (!binding.isClosed()) binding.input.focus();
+    }
   };
-  binding.input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      doSend();
+  binding.input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void doSend();
     }
   });
+  return doSend;
 }
 
 /**
@@ -123,7 +129,7 @@ export interface ChatDialogOptions {
   surface: 'web' | 'desktop';
   x: number;
   y: number;
-  /** 发送成功后调用（弹窗此时已关闭）：回复本身不从这里回传，数据只有 /state 一个出口。 */
+  /** 发送成功后调用；桌面弹窗仍打开，网页弹窗已关闭。 */
   onSent?: () => void;
   onClose?: () => void;
   /** 弹窗允许占用的矩形（视口局部坐标）；缺省 = 整个视口。 */
@@ -141,10 +147,7 @@ export interface ChatDialogOptions {
   hearUrl?: string;
 }
 
-/** 挂载一个对话输入弹窗（两端共用；位置为视口坐标，超出 clamp 矩形自动夹回）。
- *  输入框 + 上传/截屏两枚图标按钮 + 图片预览（本轮只有界面与本地预览，编码与发送待接入）。
- *  回车即发送：发送成功后弹窗关闭并调 onSent。Esc 或点弹窗外关闭；生成失败留在弹窗内显式提示。
- *  clamp 由调用方给：桌面传「窗口 ∩ 工作区」，宠物贴边时弹窗照样完整显示、窗口零移动。 */
+/** 挂载对话弹窗并夹回可视区域；桌面端发送后保留当前轮，网页端发送后关闭。 */
 export function mountChatDialog(opts: ChatDialogOptions): ChatDialogMount {
   injectChatCss();
   const { petId, surface, x, y, onSent, onClose, clamp } = opts;
@@ -156,15 +159,30 @@ export function mountChatDialog(opts: ChatDialogOptions): ChatDialogMount {
       ? clamp
       : { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
 
-  const dom = createChatDom({ capture: opts.capture, hearUrl: opts.hearUrl ?? hearUrlOf(baseUrl) });
+  const dom = createChatDom({
+    capture: opts.capture,
+    hearUrl: opts.hearUrl ?? hearUrlOf(baseUrl),
+    maxWidth: () => c.w - 8,
+    maxHeight: () => c.h - 8,
+    onLayout: () => place(),
+  });
   const { root, input, err } = dom;
+  root.dataset.surface = surface;
 
   /** 以 (x,y) 落点，超出 clamp 矩形夹回。 */
   const place = (): void => {
     const r = root.getBoundingClientRect();
     root.style.left = Math.max(c.x + 4, Math.min(x, c.x + c.w - r.width - 4)) + 'px';
     root.style.top = Math.max(c.y + 4, Math.min(y, c.y + c.h - r.height - 4)) + 'px';
+    root.dataset.resized = root.style.height ? '1' : '0';
+    if (transcript) {
+      transcript.el.style.maxHeight = root.style.height ? 'none' : CHAT_TRANSCRIPT_MAX_H + 'px';
+      if (root.style.height) transcript.el.style.height = 'auto';
+    }
   };
+
+  const transcript = surface === 'desktop' ? createChatTranscript({ baseUrl, petId, onLayout: place }) : undefined;
+  if (transcript) root.prepend(transcript.el);
 
   let closed = false;
   let unbindDismiss = (): void => {};
@@ -172,29 +190,59 @@ export function mountChatDialog(opts: ChatDialogOptions): ChatDialogMount {
     if (closed) return;
     closed = true;
     unbindDismiss();
+    transcript?.dispose();
     dom.dispose();
     dom.clearAttach();
     root.remove();
     if (onClose) onClose();
   };
   unbindDismiss = bindDismiss(root, () => closed, close);
-  bindSend({
+  const send = bindSend({
     input,
     err,
     url: withPet,
     isClosed: () => closed,
-    onOk: () => {
-      close();
+    onStart: (text) => {
+      dom.hideSessions();
+      if (transcript) {
+        if (!parseChatCommand(text)) transcript.appendUser(text);
+        input.value = '';
+        dom.clearAttach();
+        dom.resizeInput();
+      }
+      place();
+    },
+    onOk: async (state) => {
+      const effect = state.effect;
+      if (effect?.kind === 'resume-list') {
+        dom.showSessions(effect.sessions, effect.activeSessionId, (sessionId) => void send('resume ' + sessionId));
+      } else if (effect) {
+        if (effect.kind === 'new') transcript?.clear();
+        if (effect.kind === 'resume') await transcript?.reload();
+        dom.flash(state.text);
+        if (!transcript) close();
+      } else {
+        if (transcript) transcript.appendReply(state.text);
+        else close();
+      }
+      place();
       if (onSent) onSent();
     },
     attachment: () => dom.getAttachment(),
     isEncoding: () => dom.isEncoding(),
     notify: (text) => dom.flash(text),
   });
-  // 截屏按钮的接线在 dom 里（依赖注入的 capture），这里只负责发送与关闭
 
-  dom.resizeInput(); // append 后再量一次（此时样式已生效）
+  dom.resizeInput();
   place();
+  if (transcript) {
+    void transcript.load().catch((error: unknown) => {
+      if (closed) return;
+      err.textContent = '历史读取失败：' + (error instanceof Error ? error.message : String(error));
+      err.style.display = 'block';
+      place();
+    });
+  }
   if (opts.initialImage) void dom.setImageFile(opts.initialImage);
   if (opts.initialEncoded) dom.setEncoded(opts.initialEncoded);
   input.focus();

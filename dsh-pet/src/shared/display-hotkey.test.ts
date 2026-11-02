@@ -1,8 +1,7 @@
 /**
- * 显示位置数字键的判据：`1`-`4` 与右键菜单同序、输入框里不抢、带修饰键不抢。
+ * 显示位置数字键的判据：`1`-`3` 与右键菜单同序、输入框里不抢、带修饰键不抢。
  *
- * 顺序值得钉：数字键与菜单项共用 {@link DISPLAY_ORDER}，谁改了顺序都会让「按 3 变成仅桌面」这类
- * 静默错位发生，而现场只会被当成"键绑错了"。
+ * 顺序值得钉：数字键与菜单项共用 {@link DISPLAY_ORDER}，谁改了顺序都会让快捷键与菜单静默错位。
  *
  * 跑法：node --experimental-strip-types --test src/shared/display-hotkey.test.ts
  */
@@ -11,6 +10,8 @@ import assert from 'node:assert/strict';
 
 import { DISPLAY_HOTKEY_HINTS, DISPLAY_ORDER, displayOfHotkey } from './display-hotkey.ts';
 import type { HotkeyEvent } from './hotkey.ts';
+import { displayMenuBranch } from './menu/tree.ts';
+import type { MenuLeaf } from './menu/types.ts';
 
 /** 只造判据用到的字段，不需要真的 KeyboardEvent。 */
 const ev = (over: Partial<HotkeyEvent> = {}): HotkeyEvent => ({
@@ -27,10 +28,10 @@ const tag = (tagName: string, editable = false): EventTarget =>
   ({ tagName, isContentEditable: editable }) as unknown as EventTarget;
 
 describe('displayOfHotkey —— 数字键到显示位置', () => {
-  test('1-4 依次对应 web / desktop / both / none', () => {
+  test('1-3 依次对应 desktop / both / none，不再提供 web', () => {
     assert.deepEqual(
       ['1', '2', '3', '4'].map((key) => displayOfHotkey(ev({ key }))),
-      ['web', 'desktop', 'both', 'none'],
+      ['desktop', 'both', 'none', undefined],
     );
   });
 
@@ -53,7 +54,15 @@ describe('displayOfHotkey —— 数字键到显示位置', () => {
   });
 
   test('键帽文案与顺序同源', () => {
-    assert.deepEqual(DISPLAY_ORDER, ['web', 'desktop', 'both', 'none']);
-    assert.deepEqual(DISPLAY_HOTKEY_HINTS, ['1 键', '2 键', '3 键', '4 键']);
+    assert.deepEqual(DISPLAY_ORDER, ['desktop', 'both', 'none']);
+    assert.deepEqual(DISPLAY_HOTKEY_HINTS, ['1 键', '2 键', '3 键']);
+  });
+
+  test('显示位置子菜单只提供桌面三档', () => {
+    const children = displayMenuBranch().children as MenuLeaf[];
+    assert.deepEqual(
+      children.map((item) => item.display),
+      ['desktop', 'both', 'none'],
+    );
   });
 });

@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createChatMemory, type ChatMemoryInput } from './plugin/chat-memory.ts';
 import type { ChatMemoryMessage } from './chat.ts';
+import { activeChatSession, normalizeChatMemory, normalizePetChatSessions } from './chat-sessions.ts';
 import type { ConfigPaths } from './config.ts';
 import type { PetImageRef } from './image-attachment.ts';
 
@@ -93,16 +94,19 @@ function userTextOf(options: Record<string, unknown> | undefined): string {
   return last?.content?.find((block) => block.type === 'text')?.text ?? '';
 }
 
-/** 读回刚落盘的记忆消息（只应有一只宠物一个分桶）。 */
+/** 读回刚落盘的 active 消息；旧格式 seed 也走同一归一化入口。 */
 function readMessages(userRoot: string): ChatMemoryMessage[] {
   const mem = JSON.parse(readFileSync(join(userRoot, 'memory.json'), 'utf8')) as Record<
     string,
-    Record<string, { messages: ChatMemoryMessage[] }>
+    Record<string, unknown>
   >;
   const buckets = Object.values(mem).flatMap((byPet) => Object.values(byPet));
   const bucket = buckets[0];
   assert.ok(bucket && buckets.length === 1, '应当只写入一只宠物的记忆');
-  return bucket.messages;
+  const leaf = normalizePetChatSessions(bucket);
+  const session = leaf === undefined ? undefined : activeChatSession(leaf);
+  assert.ok(session, '应当存在 active 会话');
+  return session.messages;
 }
 
 describe('createChatMemory —— 图信息写入记忆文件', () => {
@@ -451,6 +455,82 @@ describe('createChatMemory —— 删除对话记忆', () => {
       const r = await createMemory('无关', ws).deleteHistory('nobody');
       assert.equal(r.ok, false);
       assert.equal(r.ok === false ? r.reason : '', 'unknown-pet');
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('createChatMemory —— 多会话持久化', () => {
+  test('旧格式 readMemory：内存归一化为 legacy，但不主动重写文件', async () => {
+    const ws = tempWorkspace();
+    mkdirSync(ws.userRoot, { recursive: true });
+    const raw = JSON.stringify({ main: { main: { messages: [{ role: 'user', content: '旧问', ts: 1 }] } } });
+    writeFileSync(join(ws.userRoot, 'memory.json'), raw);
+    try {
+      const memory = await createMemory('无关', ws).readMemory();
+      assert.equal(memory.main?.main?.activeSessionId, 'legacy');
+      assert.equal(readFileSync(join(ws.userRoot, 'memory.json'), 'utf8'), raw);
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('无会话普通聊天：自动创建 v2 active，首轮用户消息成为标题', async () => {
+    const ws = tempWorkspace();
+    try {
+      const result = await createMemory('回复', ws).chatWithPet('main', '这是一个标题');
+      assert.equal(result.ok, true);
+      const raw = JSON.parse(readFileSync(join(ws.userRoot, 'memory.json'), 'utf8')) as Record<string, unknown>;
+      const leaf = normalizePetChatSessions((raw.main as Record<string, unknown>).main);
+      assert.ok(leaf?.activeSessionId);
+      assert.equal(leaf.sessions[0]?.title, '这是一个标题');
+      assert.equal(leaf.sessions[0]?.messages.length, 2);
+      assert.ok(leaf.sessions[0]?.createdAt);
+    } finally {
+      rmSync(ws.dir, { recursive: true, force: true });
+    }
+  });
+
+  test('多会话删除：ts 只删 active 并使对应摘要失效，全清统计所有会话', async () => {
+    const ws = tempWorkspace();
+    mkdirSync(ws.userRoot, { recursive: true });
+    const leaf = {
+      activeSessionId: 'b',
+      sessions: [
+        {
+          id: 'a',
+          title: '甲',
+          createdAt: 1,
+          updatedAt: 1,
+          messages: [{ role: 'user', content: '甲', ts: 100 }],
+        },
+        {
+          id: 'b',
+          title: '乙',
+          createdAt: 2,
+          updatedAt: 2,
+          messages: [
+            { role: 'user', content: '旧乙', ts: 200 },
+            { role: 'user', content: '新乙', ts: 300 },
+          ],
+          compaction: { summary: '摘要', throughMessageCount: 1, compactedAt: 250 },
+        },
+      ],
+    };
+    writeFileSync(join(ws.userRoot, 'memory.json'), JSON.stringify({ main: { main: leaf } }));
+    try {
+      const memory = createMemory('无关', ws);
+      assert.deepEqual(await memory.deleteHistory('main', [200]), { ok: true, removed: 1 });
+      const afterTs = normalizeChatMemory(JSON.parse(readFileSync(join(ws.userRoot, 'memory.json'), 'utf8')) as unknown)
+        .main?.main;
+      assert.equal(afterTs?.sessions[0]?.messages.length, 1);
+      assert.equal(afterTs?.sessions[1]?.compaction, undefined);
+      assert.deepEqual(
+        afterTs?.sessions[1]?.messages.map((item) => item.content),
+        ['新乙'],
+      );
+      assert.deepEqual(await memory.deleteHistory('main'), { ok: true, removed: 2 });
     } finally {
       rmSync(ws.dir, { recursive: true, force: true });
     }

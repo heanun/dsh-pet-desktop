@@ -67,10 +67,13 @@ function mergePets(
   label: string,
   seenIds: Set<string>,
 ): Record<string, unknown>[] {
-  const basePet: Record<string, unknown> = basePets[0] ?? {};
+  const defaults = basePets.map((pet) =>
+    pet.display === 'web' ? { ...pet, display: normalizePetDisplay('web') } : pet,
+  );
+  const basePet: Record<string, unknown> = defaults[0] ?? {};
   if (!Array.isArray(raw) || raw.length === 0) {
     warnOnce(`${label}:pets`, `「${label}」的 pets 缺失或为空，已取默认宠物列表`);
-    return basePets;
+    return defaults;
   }
   const out: Record<string, unknown>[] = [];
   for (const item of raw) {
@@ -79,7 +82,7 @@ function mergePets(
   }
   if (out.length === 0) {
     warnOnce(`${label}:pets`, `「${label}」的 pets 全部被跳过（id 非法/重复/冲突），已取默认宠物列表`);
-    return basePets;
+    return defaults;
   }
   return out;
 }
@@ -133,6 +136,11 @@ function petEnum(
   return typeof def === 'string' ? def : '';
 }
 
+/** 旧 web 档在成品配置中等同 both；其余档位保持原值。 */
+function normalizePetDisplay(display: string): string {
+  return display === 'web' ? 'both' : display;
+}
+
 /** 一只实例 → 完成品实例（id 必须自己的且全局唯一；其余字段没写/非法 → 默认 + 告警） */
 function mergePet(
   base: Record<string, unknown>,
@@ -165,7 +173,7 @@ function mergePet(
     whisperEnabled: petBool(p.whisperEnabled, base.whisperEnabled, label, 'whisperEnabled', id),
     workStatusEnabled: petBool(p.workStatusEnabled, base.workStatusEnabled, label, 'workStatusEnabled', id),
     fixedEnabled: petBool(p.fixedEnabled, base.fixedEnabled, label, 'fixedEnabled', id),
-    display: petEnum(p.display, PET_DISPLAY_SET, base.display, label, 'display', id),
+    display: normalizePetDisplay(petEnum(p.display, PET_DISPLAY_SET, base.display, label, 'display', id)),
     position: {
       corner: petEnum(ownPos.corner, CORNER_SET, basePos.corner, label, 'position.corner', id),
       marginX: petNumber(ownPos.marginX, basePos.marginX, -Infinity, label, 'position.marginX', id),

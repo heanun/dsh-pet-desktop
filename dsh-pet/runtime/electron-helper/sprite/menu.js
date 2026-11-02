@@ -277,6 +277,7 @@ Object.assign(PetSprite.prototype, {
     }
     // 语音接口同样走 bridge 地址；念不念由 say.voiceTo 决定（本端身份启动时已 setSurface('desktop')）
     S.setVoiceBase(BASE);
+    this.expandChatWindow();
     const m = S.mountChatDialog({
       petId: this.pet.id,
       baseUrl: BASE + '/chat',
@@ -299,6 +300,7 @@ Object.assign(PetSprite.prototype, {
         this.chatMount = null;
         this.chatOpen = false;
         window.__dshPetDebug.chatOpen = false;
+        this.restoreChatWindow();
         this.syncInputBusy(); // 弹窗关：交还常规判定（菜单还开着的话仍保持忙）
         if (!this.menuOpen) this.setInteractive(false); // 无菜单时恢复命中区穿透
       },

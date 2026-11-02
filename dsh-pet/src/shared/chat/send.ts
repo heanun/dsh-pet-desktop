@@ -1,8 +1,9 @@
 /**
- * 对话发送：把一句输入交给宿主 `POST /chat`，只回执成败。
- * 正文展示不走这里——回复统一从 `/state` 的 `pets.<id>.say` 读。
+ * 对话发送：把一句输入交给宿主 `POST /chat`，带回成败与回复正文。
+ * 回复仍会写入 `/state` 的 `pets.<id>.say`；桌面弹窗直接使用响应正文组成当前轮。
  * @module dsh-pet/src/shared/chat/send
  */
+import { parseChatCommandEffect, type ChatCommandEffect } from './commands.ts';
 
 /** 随消息发送的一张图片：`data` 是规范 base64（不带 data: 前缀）。 */
 export interface ChatAttachment {
@@ -10,9 +11,9 @@ export interface ChatAttachment {
   readonly data: string;
 }
 
-/** 发送回执：本类型只声明消费方用到的 ok，正文展示一律走 /state 的 pets.<id>.say。 */
+/** 发送回执：成功时带回复正文与可选会话效果，失败时带归一化原因。 */
 export type ChatSendState =
-  | { ok: true }
+  | { ok: true; text: string; effect?: ChatCommandEffect }
   | { ok: false; reason: 'provider-missing' | 'generate-error' | 'config-error' | 'bad-request'; message?: string };
 
 /** 对话要等 LLM 生成回复，比碎碎念（30s）放宽一倍 */
@@ -25,7 +26,7 @@ const SEND_TIMEOUT_MS = 60_000;
  * @param baseUrl - 已含 `?pet=&surface=` 的完整对话地址。
  * @param text - 用户输入正文（宿主会 trim 并校验 2000 字上限）。
  * @param attachment - 可选的一张图片；不传时请求体只有 `text`，与旧版逐字一致。
- * @returns 成功，或归一化后的失败原因与文案。
+ * @returns 成功时带回复正文，失败时带归一化原因与文案。
  * @throws 响应不是 JSON 对象时。
  */
 export async function sendChat(baseUrl: string, text: string, attachment?: ChatAttachment): Promise<ChatSendState> {
@@ -50,5 +51,6 @@ export async function sendChat(baseUrl: string, text: string, attachment?: ChatA
       message: typeof o.message === 'string' ? o.message : undefined,
     };
   }
-  return { ok: true };
+  const effect = parseChatCommandEffect(o.effect);
+  return { ok: true, text: typeof o.text === 'string' ? o.text : '', ...(effect ? { effect } : {}) };
 }

@@ -12,8 +12,6 @@ export interface ScriptConsts {
   readonly voices: readonly { readonly id: string; readonly name: string; readonly tag: string }[];
   /** 字体预设 id（来自 shared/fonts.ts）。 */
   readonly fonts: readonly string[];
-  /** 显示档（来自 shared/config.ts）。 */
-  readonly displays: readonly string[];
   /** 停靠角落（来自 host/config/constants.ts）。 */
   readonly corners: readonly string[];
   /** 物理默认值（来自 shared/physics）。 */
@@ -36,7 +34,6 @@ history.replaceState(null, '', location.pathname);
 const API = ${JSON.stringify(routePath)};
 const VOICES = ${JSON.stringify(consts.voices)};
 const FONT_IDS = ${JSON.stringify(consts.fonts)};
-const DISPLAYS = ${JSON.stringify(consts.displays)};
 const CORNERS = ${JSON.stringify(consts.corners)};
 const FALLBACK_PHYSICS = ${JSON.stringify(consts.physics)};
 const FALLBACK_FONT = ${JSON.stringify(consts.font)};

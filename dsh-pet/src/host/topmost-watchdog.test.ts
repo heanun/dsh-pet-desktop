@@ -1,5 +1,5 @@
 /**
- * 桌面 helper「置顶看门狗」的判定 + 源码守卫。
+ * 桌面 helper「置顶看门狗」的判定 + 窗口行为。
  *
  * 背景：Windows 双屏 + DSH 主窗最大化时，桌宠整只沉到主窗下面——进程活着、渲染正常，只是看不见；z 序上普通窗压在桌宠窗之上，而桌宠窗的 `WS_EX_TOPMOST` 位仍为真。
  *
@@ -10,15 +10,13 @@
  * 一次外部 z 序扰动就能让桌宠永久隐身，直到 helper 重启。
  *
  * 本文件钉三件事：① 判定规则：到点才重钉；隐藏/销毁/自检挂起期间不钉（下一拍补上）；
- * ② 常量不变式：节拍必须快于重钉间隔，否则退化成"每拍都钉"；③ 源码守卫：main.js 必须按这套
- * 规则接线，且看门狗只重钉置顶，不得移动/缩放/显隐/抢焦点（那些是渲染端与其它通道的职责）。
+ * ② 常量不变式：节拍必须快于重钉间隔，否则退化成"每拍都钉"；③ 窗口按 display 决定是否
+ * 初始置顶与启动看门狗，看门狗到点重钉并在关窗时停止。
  *
  * 用 Node 内置 test runner（node:test），不引入任何 npm 依赖。
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -30,9 +28,7 @@ const {
   shouldReassertTopmost,
   topmostLevel,
 } = require(helper + 'topmost-watchdog.js');
-
-/** 包内文件源码（守卫用；相对 src/host/ 解析） */
-const readSource = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+const { createWindows } = require(helper + 'main/windows.js');
 
 /** 一份"窗口健在、可见、没被挂起"的基准状态 */
 const alive = { destroyed: false, visible: true, paused: false };
@@ -106,64 +102,169 @@ describe('shouldReassertTopmost —— 到点才重钉，每拍都问一次', ()
   });
 });
 
-describe('源码守卫 —— 置顶看门狗必须在 main.js 里按这套规则接线', () => {
-  /** 主进程源码：main.js 是装配根，行为散在 main/ 下的模块里，守卫要读全份。 */
-  const mainSource = (dir: string): string =>
-    [
-      readSource(dir + 'main.js'),
-      ...readdirSync(fileURLToPath(new URL(dir + 'main/', import.meta.url)))
-        .filter((name) => name.endsWith('.js'))
-        .map((name) => readSource(dir + 'main/' + name)),
-    ].join('\n');
-  const main = mainSource(helper);
-  /** 看门狗定时器体（锚在 topmostTimer 的赋值上，避免匹配到更早的其它 setInterval） */
-  const watchdogBody = (): string => {
-    const m = /topmostTimer = setInterval\(\(\) => \{([\s\S]*?)\}, TOPMOST_WATCHDOG_TICK_MS\);/.exec(main);
-    assert.ok(m, '找不到看门狗定时器（节拍必须是命名常量 TOPMOST_WATCHDOG_TICK_MS）');
-    return m[1];
+interface WindowRecord {
+  options: Record<string, unknown>;
+  alwaysOnTopCalls: Array<{ flag: boolean; level?: string }>;
+  ignoreMouseEventsCalls: Array<{ ignore: boolean; options: { forward: boolean } }>;
+}
+
+interface TimerRecord {
+  callback: () => void;
+  ms: number;
+  cleared: boolean;
+}
+
+/** 用窗口与定时器替身运行真实窗口装配，避免把接线契约写成源码文本守卫。 */
+function createWindowHarness(display?: string) {
+  const originalPets = process.env.DSH_PET_PETS;
+  const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
+  const originalNow = Date.now;
+  const records: WindowRecord[] = [];
+  const timers: TimerRecord[] = [];
+  const listeners = new Map<string, Array<() => void>>();
+  let nowMs = 1000;
+  let destroyed = false;
+  const record: WindowRecord = { options: {}, alwaysOnTopCalls: [], ignoreMouseEventsCalls: [] };
+  const win = {
+    id: 1,
+    setAlwaysOnTop: (flag: boolean, level?: string) => record.alwaysOnTopCalls.push({ flag, level }),
+    setVisibleOnAllWorkspaces: () => {},
+    setIgnoreMouseEvents: (ignore: boolean, options: { forward: boolean }) =>
+      record.ignoreMouseEventsCalls.push({ ignore, options }),
+    on: (event: string, listener: () => void) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+    },
+    once: () => {},
+    isDestroyed: () => destroyed,
+    isVisible: () => true,
+    getBounds: () => ({ x: 0, y: 0, width: 924, height: 700 }),
+    loadFile: async () => {},
+    destroy: () => {
+      destroyed = true;
+      for (const listener of listeners.get('closed') ?? []) listener();
+    },
+    webContents: { setBackgroundThrottling: () => {}, on: () => {}, once: () => {}, send: () => {} },
   };
-
-  test('建窗时那次置顶不能删，且看门狗使用相同的平台层级', () => {
-    assert.ok(
-      /win\.setAlwaysOnTop\(true, topmostLevel\(process\.platform\)\);/.test(main),
-      '建窗时必须先置顶一次（看门狗只负责复查，不能当成唯一置顶来源）',
-    );
-    assert.ok(
-      (main.match(/win\.setAlwaysOnTop\(true, topmostLevel\(process\.platform\)\)/g) ?? []).length >= 2,
-      '看门狗必须再钉一次同档位（HWND_TOPMOST 落带靠它；moveTop 的 HWND_TOP 对已沉底窗口无效）',
-    );
-    assert.ok(
-      /require\('\.\.\/topmost-watchdog\.js'\)/.test(main),
-      '看门狗判定必须复用 runtime/electron-helper/topmost-watchdog.js（纯逻辑有单测）',
-    );
-    assert.ok(!/win\.moveTop\(/.test(main), 'moveTop()=HWND_TOP 不落置顶带，不得用它当兜底');
+  function BrowserWindow(options: Record<string, unknown>) {
+    record.options = options;
+    records.push(record);
+    return win;
+  }
+  globalThis.setInterval = ((callback: () => void, ms: number) => {
+    const timer = { callback, ms, cleared: false };
+    timers.push(timer);
+    return timer;
+  }) as unknown as typeof setInterval;
+  globalThis.clearInterval = ((timer: TimerRecord) => {
+    timer.cleared = true;
+  }) as unknown as typeof clearInterval;
+  Date.now = () => nowMs;
+  process.env.DSH_PET_PETS = JSON.stringify([{ id: 'main', size: 462, ...(display === undefined ? {} : { display }) }]);
+  const area = { x: 0, y: 0, width: 1920, height: 1040 };
+  const windows = createWindows({
+    BrowserWindow,
+    screen: { getAllDisplays: () => [], getPrimaryDisplay: () => ({ id: 1 }) },
+    buildDeskGeometry: () => ({
+      hull: { ...area, height: 1080 },
+      areas: [area],
+      workAreas: [area],
+      topInsetRatio: 0,
+      panels: [],
+      primaryIndex: 0,
+    }),
+    dpi: { petScale: () => 1, currentPointer: () => ({ x: 0, y: 0 }) },
+    helperDir: '/tmp/dsh-pet-test',
+    isBridge: false,
+    openTarget: 'web',
+    platform: process.platform,
+    shouldReassertTopmost,
+    topmostLevel,
+    taskbarWatchdogEnabled: false,
   });
+  return {
+    records,
+    timers,
+    windows,
+    advance: (ms: number) => {
+      nowMs += ms;
+    },
+    restore: () => {
+      globalThis.setInterval = originalSetInterval;
+      globalThis.clearInterval = originalClearInterval;
+      Date.now = originalNow;
+      if (originalPets === undefined) delete process.env.DSH_PET_PETS;
+      else process.env.DSH_PET_PETS = originalPets;
+    },
+  };
+}
 
-  test('看门狗按判定函数 + 命名节拍运行，并在窗口关闭时停掉', () => {
-    assert.ok(/shouldReassertTopmost\(/.test(main), '必须调用纯判定');
-    assert.ok(/TOPMOST_WATCHDOG_ENABLED/.test(watchdogBody()), '判定必须显式传入总开关，否则开关改了也不生效');
-    const body = watchdogBody();
-    assert.ok(/win\.isDestroyed\(\)/.test(body), '判定必须带上"窗口已销毁"');
-    assert.ok(/win\.isVisible\(\)/.test(body), '判定必须带上"窗口可见"（未 show 时不钉）');
-    assert.ok(/pointerFallbackPaused/.test(body), '判定必须带上自检挂起开关');
-    assert.ok(/lastAssertMs: lastTopmostAssertMs/.test(body), '必须把上次重钉时间带进判定');
-    assert.ok(/clearInterval\(topmostTimer\)/.test(main), '窗口关闭时必须停掉看门狗');
-  });
-
-  test('看门狗只重钉置顶：不得顺手移动/缩放/显隐/抢焦点', () => {
-    const body = watchdogBody();
-    for (const forbidden of [
-      'setContentBounds',
-      'setBounds',
-      'win.show(',
-      'win.hide(',
-      'win.focus(',
-      'setIgnoreMouseEvents',
-    ]) {
-      assert.ok(
-        !body.includes(forbidden),
-        `看门狗体里不得出现 ${forbidden}（位置/显隐/输入透传各有专职通道，混进来会互相打架）`,
+describe('createWindows —— 按 display 决定是否置顶', () => {
+  test('display=desktop：建窗不置顶、不启动置顶看门狗，其它窗口行为不变', () => {
+    const harness = createWindowHarness('desktop');
+    try {
+      harness.windows.create();
+      const record = harness.records[0];
+      assert.ok(record, '必须建出一个窗口');
+      assert.equal(record.options.alwaysOnTop, false);
+      assert.equal(record.options.transparent, true);
+      assert.equal(record.options.skipTaskbar, true);
+      assert.equal(record.options.focusable, true);
+      assert.deepEqual(record.alwaysOnTopCalls, []);
+      assert.deepEqual(record.ignoreMouseEventsCalls, [{ ignore: true, options: { forward: true } }]);
+      assert.equal(
+        harness.timers.some((timer) => timer.ms === TOPMOST_WATCHDOG_TICK_MS),
+        false,
+        '仅桌面窗口不得启动置顶看门狗',
       );
+      harness.windows.closeAll();
+      assert.ok(
+        harness.timers.every((timer) => timer.cleared),
+        '关闭窗口必须安全清理已启动的泵',
+      );
+    } finally {
+      harness.windows.closeAll();
+      harness.restore();
+    }
+  });
+
+  test('display=both：保持初始置顶，总开关关闭时不重钉并在关窗时清理', () => {
+    const harness = createWindowHarness('both');
+    try {
+      harness.windows.create();
+      const record = harness.records[0];
+      assert.ok(record, '必须建出一个窗口');
+      assert.equal(record.options.alwaysOnTop, true);
+      assert.deepEqual(record.alwaysOnTopCalls, [{ flag: true, level: topmostLevel(process.platform) }]);
+      const watchdog = harness.timers.find((timer) => timer.ms === TOPMOST_WATCHDOG_TICK_MS);
+      assert.ok(watchdog, '双端窗口必须启动置顶看门狗');
+      harness.advance(TOPMOST_REASSERT_MS);
+      watchdog.callback();
+      assert.deepEqual(
+        record.alwaysOnTopCalls,
+        [{ flag: true, level: topmostLevel(process.platform) }],
+        '生产总开关关闭时，看门狗到点也不得重钉',
+      );
+      harness.windows.closeAll();
+      assert.equal(watchdog.cleared, true);
+    } finally {
+      harness.windows.closeAll();
+      harness.restore();
+    }
+  });
+
+  test('display 缺字段：兼容旧启动参数，仍按双端窗口置顶', () => {
+    const harness = createWindowHarness();
+    try {
+      harness.windows.create();
+      const record = harness.records[0];
+      assert.ok(record, '必须建出一个窗口');
+      assert.equal(record.options.alwaysOnTop, true);
+      assert.deepEqual(record.alwaysOnTopCalls, [{ flag: true, level: topmostLevel(process.platform) }]);
+      assert.ok(harness.timers.some((timer) => timer.ms === TOPMOST_WATCHDOG_TICK_MS));
+    } finally {
+      harness.windows.closeAll();
+      harness.restore();
     }
   });
 });

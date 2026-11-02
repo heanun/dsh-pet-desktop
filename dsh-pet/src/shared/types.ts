@@ -16,7 +16,7 @@ export interface Rect {
   height: number;
 }
 
-/** 显示位置：决定宠物在浏览器半侧与桌面中的可见性。 */
+/** 显示位置协议值；旧 web 在配置合并时归一为 both。 */
 export type PetDisplay = 'web' | 'desktop' | 'both' | 'none';
 
 /** 移动动作：动作名 + 可选覆盖参数（未写字段取 moves.default）。 */
@@ -192,7 +192,7 @@ export type FontFamilyId = 'candy' | 'yahei' | 'youyuan' | 'kaiti' | 'simsun' | 
  *  整段替换（与 physics 同）：写了就整段用自己的，缺的子键不会从内置默认补回来——
  *  手改时必须三个子键写全，否则整段非法 → 告警并取默认。 */
 export interface FontConfig {
-  /** 字体种类（预设 id）：影响气泡、悬浮提示、对话窗与得分弹窗 */
+  /** 字体种类（预设 id）：影响气泡、悬浮提示、聊天框与得分弹窗 */
   family: FontFamilyId;
   /** 字号 px：只影响气泡与悬浮提示（对话窗与得分弹窗的字号不变），提示与气泡内小字按既有比例派生 */
   size: number;
@@ -208,8 +208,8 @@ export interface ClientConfig {
    *  内置默认 false（默认静音，不突袭既有用户）。只读 main 条目这一份，pet pack 不单独覆盖。 */
   clickSoundEnabled: boolean;
   /** 桌面模式系统托盘开关：true = 桌面端启动后在通知区域（macOS 为菜单栏）建托盘，列出配置里全部宠物
-   *  （含 display 为 web/none 的），勾选即可切回桌面；false = 不建。
-   *  缺失默认 true。关掉后「把不在桌面的宠物叫回桌面」在桌面侧没有入口，只能走设置页或网页端右键菜单。 */
+   *  （含 display 为 none 的），勾选即可切回桌面；false = 不建。
+   *  缺失默认 true。关掉后「把不在桌面的宠物叫回桌面」在桌面侧没有入口，只能走设置页。 */
   trayEnabled: boolean;
   /** 碎碎念配图开关：true = 每次从表情包池随机抽 1 张连同文本显示（碎碎念无上下文，故随机） */
   whisperImageEnabled: boolean;

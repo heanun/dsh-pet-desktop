@@ -58,11 +58,11 @@ export function createDesktopPets(deps: DesktopPetsInput) {
   };
 
   /** 参与桌面窗的宠物（给 helper 的启动参数）；读失败返回空列表。 */
-  const desktopPetList = (): Array<{ id: string; size: number }> => {
+  const desktopPetList = (): Array<{ id: string; size: number; display: string }> => {
     try {
       return effectivePetList()
         .filter((pet) => isDesktopVisible(pet.display))
-        .map((pet) => ({ id: String(pet.id), size: Number(pet.size) }));
+        .map((pet) => ({ id: String(pet.id), size: Number(pet.size), display: String(pet.display) }));
     } catch {
       return [];
     }

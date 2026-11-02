@@ -7,8 +7,9 @@ import { type EncodedImage, encodeImageFile } from './encode.ts';
 import { createHearControl } from './hear-control.ts';
 import { IMAGE_ACCEPT, firstImageFromClipboard, isImageFile } from './image-pick.ts';
 import { cameraIcon, micIcon, pictureIcon } from './icons.ts';
+import type { ChatSessionSummary } from './commands.ts';
+import { createChatResizeDriver } from './resize.ts';
 import type { ChatAttachment } from './send.ts';
-import { CHAT_H_PAD, CHAT_MAX_W, CHAT_MIN_W } from './styles.ts';
 
 /** 提示自动收起的时间（ms）。 */
 const HINT_MS = 2200;
@@ -19,7 +20,7 @@ export interface ChatDom {
   readonly input: HTMLTextAreaElement;
   readonly err: HTMLDivElement;
   readonly shotBtn: HTMLButtonElement;
-  /** 输入框与根宽度随文本自适应；挂到文档后调用一次，输入时自动重算。 */
+  /** 未手动拖宽时随文本调整宽度；输入只调整 textarea 高度，不覆盖手动根高度。 */
   readonly resizeInput: () => void;
   /** 清掉待发送图片（含 file input 的值）。 */
   readonly clearAttach: () => void;
@@ -33,6 +34,14 @@ export interface ChatDom {
   readonly isEncoding: () => boolean;
   /** 临时提示（不是错误），超时自动收起。 */
   readonly flash: (text: string) => void;
+  /** 显示会话选择列表；选择某个会话时调用 onSelect。 */
+  readonly showSessions: (
+    sessions: readonly ChatSessionSummary[],
+    activeSessionId: string,
+    onSelect: (sessionId: string) => void,
+  ) => void;
+  /** 收起会话选择列表。 */
+  readonly hideSessions: () => void;
   /** 从外部开录（快捷键「按住说话」用）；录不了时给一句原因，已在录时什么都不做。 */
   readonly startHear: () => void;
   /** 从外部收尾（快捷键松手用）；没在录时什么都不做。 */
@@ -54,23 +63,6 @@ function iconButton(title: string, icon: SVGElement): HTMLButtonElement {
   return btn;
 }
 
-/** 输入框宽度随文本自适应：宽度按测量值，封顶后由高度接住折行。 */
-function enableAutoResize(input: HTMLTextAreaElement, root: HTMLElement): () => void {
-  let measureCtx: CanvasRenderingContext2D | null = null;
-  const resize = (): void => {
-    const ctx =
-      measureCtx ?? (measureCtx = document.createElement('canvas').getContext('2d') as CanvasRenderingContext2D);
-    ctx.font = getComputedStyle(input).font; // 每次取当前计算样式（挂载前后都准）
-    const textW = ctx.measureText(input.value || ' ').width;
-    const w = Math.max(CHAT_MIN_W, Math.min(Math.ceil(textW + CHAT_H_PAD), CHAT_MAX_W));
-    root.style.width = w + 'px'; // 根宽度跟随 → 夹回仍按实际宽
-    input.style.height = 'auto';
-    input.style.height = Math.max(input.scrollHeight, 22) + 'px';
-  };
-  input.addEventListener('input', resize);
-  return resize;
-}
-
 /**
  * 建好弹窗的全部元素并挂到 `document.body` 下。
  *
@@ -78,7 +70,15 @@ function enableAutoResize(input: HTMLTextAreaElement, root: HTMLElement): () => 
  *   （录不了时按住说话的按钮照样在，点它给一句原因）。
  * @returns 元素引用与行为（清理附件、临时提示、自适应、释放计时器）。
  */
-export function createChatDom(opts: { capture?: () => Promise<EncodedImage>; hearUrl?: string } = {}): ChatDom {
+export function createChatDom(
+  opts: {
+    capture?: () => Promise<EncodedImage>;
+    hearUrl?: string;
+    maxWidth?: () => number;
+    maxHeight?: () => number;
+    onLayout?: () => void;
+  } = {},
+): ChatDom {
   const root = document.createElement('div');
   root.className = 'dsh-pet-chat';
 
@@ -110,6 +110,50 @@ export function createChatDom(opts: { capture?: () => Promise<EncodedImage>; hea
     hintTimer = window.setTimeout(hideHint, HINT_MS);
   };
 
+  const sessionPanel = document.createElement('div');
+  sessionPanel.className = 'dsh-pet-chat-sessions';
+  sessionPanel.dataset.on = '0';
+  const hideSessions = (): void => {
+    sessionPanel.dataset.on = '0';
+    sessionPanel.replaceChildren();
+  };
+  const showSessions = (
+    sessions: readonly ChatSessionSummary[],
+    activeSessionId: string,
+    onSelect: (sessionId: string) => void,
+  ): void => {
+    sessionPanel.replaceChildren();
+    if (sessions.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'dsh-pet-chat-session-empty';
+      empty.textContent = '没有可恢复的会话';
+      sessionPanel.appendChild(empty);
+    }
+    for (const session of sessions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'dsh-pet-chat-session';
+      button.disabled = session.id === activeSessionId;
+      const title = document.createElement('span');
+      title.className = 'dsh-pet-chat-session-title';
+      title.textContent = session.title;
+      const meta = document.createElement('span');
+      meta.className = 'dsh-pet-chat-session-meta';
+      const current = button.disabled ? '当前 · ' : '';
+      meta.textContent = `${current}${new Date(session.updatedAt).toLocaleString()} · ${session.messageCount} 条 · ${session.id.slice(0, 8)}`;
+      button.append(title, meta);
+      button.addEventListener('click', () => onSelect(session.id));
+      sessionPanel.appendChild(button);
+    }
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'dsh-pet-chat-session-cancel';
+    cancel.textContent = '取消';
+    cancel.addEventListener('click', hideSessions);
+    sessionPanel.appendChild(cancel);
+    sessionPanel.dataset.on = '1';
+  };
+
   const pickBtn = iconButton('上传图片', pictureIcon());
   const shotBtn = iconButton('截取当前屏幕', cameraIcon());
   const hearUrl = typeof opts.hearUrl === 'string' ? opts.hearUrl : '';
@@ -136,10 +180,34 @@ export function createChatDom(opts: { capture?: () => Promise<EncodedImage>; hea
   actions.className = 'dsh-pet-chat-actions';
   actions.append(pickBtn, shotBtn, micBtn, fileInput, attach);
 
-  root.append(input, actions, hint, err);
+  const createResizeHandle = (direction: 'e' | 's' | 'se', label: string): HTMLDivElement => {
+    const handle = document.createElement('div');
+    handle.className = `dsh-pet-chat-resize dsh-pet-chat-resize-${direction}`;
+    handle.setAttribute('role', 'separator');
+    handle.setAttribute('aria-label', label);
+    if (direction === 'e') handle.setAttribute('aria-orientation', 'vertical');
+    if (direction === 's') handle.setAttribute('aria-orientation', 'horizontal');
+    handle.tabIndex = 0;
+    return handle;
+  };
+  const resizeHandles = {
+    right: createResizeHandle('e', '调整聊天框宽度'),
+    bottom: createResizeHandle('s', '调整聊天框高度'),
+    corner: createResizeHandle('se', '调整聊天框宽度和高度'),
+  };
+
+  root.append(input, sessionPanel, actions, hint, err, resizeHandles.right, resizeHandles.bottom, resizeHandles.corner);
   document.body.appendChild(root);
 
-  const resizeInput = enableAutoResize(input, root);
+  const resize = createChatResizeDriver({
+    root,
+    input,
+    handles: resizeHandles,
+    maxWidth: opts.maxWidth ?? (() => window.innerWidth - 8),
+    maxHeight: opts.maxHeight ?? (() => window.innerHeight - 8),
+    onLayout: opts.onLayout ?? (() => {}),
+  });
+  const resizeInput = resize.resizeInput;
 
   let attachment: ChatAttachment | undefined;
   let encoding = false;
@@ -232,11 +300,14 @@ export function createChatDom(opts: { capture?: () => Promise<EncodedImage>; hea
     getAttachment: () => attachment,
     isEncoding: () => encoding || capturing,
     flash,
+    showSessions,
+    hideSessions,
     startHear: hear.start,
     stopHear: hear.stop,
     isHearing: hear.isHearing,
     dispose: () => {
       window.clearTimeout(hintTimer);
+      resize.dispose();
       hear.dispose();
     },
   };

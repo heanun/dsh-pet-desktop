@@ -5,7 +5,10 @@
  * 依赖（PetRouteDeps）显式传入，模块内不读全局、不建状态。
  * @module dsh-pet/src/host/routes/chat
  */
+import { randomUUID } from 'node:crypto';
+import { parseChatCommand } from '../../shared/chat/commands.ts';
 import { readAllConfig, sliceMemoryRounds } from '../config.ts';
+import { createPetChatSessions, ensureActiveChatSession, summarizeChatSession } from '../chat-sessions.ts';
 import { parseImageAttachment, type PetImageRef, type PetImageSink } from '../image-attachment.ts';
 import type { PetRouteDeps, RouteInput } from './types.ts';
 import type { RouteResult } from '../http.ts';
@@ -17,7 +20,7 @@ type ImageAdmission =
 
 /** 对话领域：未命中返回 undefined，命中返回应答。 */
 export async function handleChatRoutes(deps: PetRouteDeps, input: RouteInput): Promise<RouteResult | undefined> {
-  const { configPaths, log, memoryPath, memoryRounds, readMemory, requirePet } = deps;
+  const { configPaths, memoryRounds, readMemory, requirePet } = deps;
   const { body, method, rest, url } = input;
 
   // 已删宠物的残留历史：配置里已经没有这只宠物，GET /chat 读不到它，也就清不掉。
@@ -67,18 +70,17 @@ export async function handleChatRoutes(deps: PetRouteDeps, input: RouteInput): P
       const petId = who.petId;
       if (method === 'GET') {
         const mem = await readMemory();
-        const rawMessages = mem[who.entry]?.[petId]?.messages;
-        // 记忆文件是合法 JSON 但 messages 不是数组时，slice() 会抛 slice is not a function：
-        // 按空历史处理并记一行日志，不因为一条坏数据让整个历史接口报错。
-        const list = Array.isArray(rawMessages) ? rawMessages.filter((m) => m && typeof m.content === 'string') : [];
-        if (rawMessages !== undefined && !Array.isArray(rawMessages)) {
-          log.error(`[dsh-pet] 记忆结构异常（messages 不是数组）pet=${petId}，按空历史处理：${memoryPath}`);
-        }
-        // 传了 ?rounds= 就用传的（含 0 = 空历史），没传才回落到配置
+        const leaf = mem[who.entry]?.[petId] ?? createPetChatSessions(randomUUID(), Date.now());
+        const session = ensureActiveChatSession(leaf, randomUUID(), Date.now());
         const rounds = roundsOverride ?? memoryRounds(who.conf);
-        // 与 chatWithPet 同一语义：rounds = 0 → 空历史（slice(-0) 会返回整个数组，见上）
-        const messages = sliceMemoryRounds(list, rounds);
-        return okResult({ ok: true, messages, rounds });
+        const messages = sliceMemoryRounds(session.messages, rounds);
+        return okResult({
+          ok: true,
+          messages,
+          rounds,
+          activeSessionId: session.id,
+          session: summarizeChatSession(session),
+        });
       }
       if (method === 'DELETE') return okResult(await deps.deleteHistory(petId, tsList));
       return await postChat(deps, petId, body);
@@ -114,7 +116,7 @@ function parseTsList(raws: readonly string[]): number[] | null {
  * @param deps - 路由依赖。
  * @param petId - 已校验存在的宠物 id。
  * @param body - 请求体原文；不是合法 JSON 时回 400。
- * @returns 与加入图片前同形的应答：成功只带 `text`（配图时另有 `image`）。
+ * @returns 普通聊天或会话命令的应答。
  */
 async function postChat(deps: PetRouteDeps, petId: string, body: string | undefined): Promise<RouteResult> {
   let parsed: Record<string, unknown>;
@@ -126,6 +128,12 @@ async function postChat(deps: PetRouteDeps, petId: string, body: string | undefi
   const text = typeof parsed.text === 'string' ? parsed.text.trim() : '';
   if (!text) return failResult('bad-request', '消息为空');
   if (text.length > 2000) return failResult('bad-request', '消息过长（限 2000 字）');
+  const command = parseChatCommand(text);
+  if (command !== undefined) {
+    if (parsed.attachment !== undefined) return failResult('bad-request', '会话命令不支持附件');
+    if (command.kind === 'invalid') return failResult('bad-request', command.message);
+    return okResult(await deps.runChatCommand(petId, command));
+  }
   // 图片缺省时直接返回空结论，下面的调用与加入图片前逐字一致（回归测试钉的就是这条）
   const admitted = await admitImage(deps, parsed.attachment);
   if (!admitted.ok) return admitted.res;

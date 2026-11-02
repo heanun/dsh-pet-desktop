@@ -58,6 +58,8 @@ export interface ChatGenerateInput {
   readonly ctx: { agentDefaultModel: { currentSelection(): { provider: string; model: string } }; llm?: unknown };
   /** 人设提示词（whisperPrompt，与碎碎念共用同一人设）。 */
   readonly system: string;
+  /** 已压缩会话的摘要；缺省时 system 原样发送。 */
+  readonly contextSummary?: string;
   /** 最近记忆（按时间正序，user / assistant 交替）。 */
   readonly history: readonly ChatMemoryMessage[];
   /** 用户刚输入的话；图片不带任何文字描述，语境全靠它。 */
@@ -79,7 +81,8 @@ export interface ChatGenerateInput {
  * @returns 回复文本（+ 命中池内的配图名），或结构化失败（provider 缺失 / 生成错误）。
  */
 export async function generateChat(input: ChatGenerateInput): Promise<ChatGenerateResult> {
-  const { ctx, system, history, userText, preferred, image } = input;
+  const { ctx, system, history, userText, preferred, image, contextSummary } = input;
+  const requestSystem = contextSummary === undefined ? system : `${system}\n\n[会话摘要]\n${contextSummary}`;
   // 表情包侧的读池 / 校验函数按可变数组签名；这里复制一份，避免把调用方数组的引用往下传
   const pool: MemeEntry[] = [...(input.pool ?? [])];
   // 动作名单同样是「空 = 关闭」：开关关掉或 categories 没配任何动作时，指令与解析都不介入。
@@ -98,7 +101,16 @@ export async function generateChat(input: ChatGenerateInput): Promise<ChatGenera
   // 兜底文案与失败分支同源，避免两处字面量漂移
   let last: ChatGenerateResult = { ok: false, reason: 'generate-error', message: noTextReason(undefined) };
   for (const [i, sel] of candidates.entries()) {
-    const result = await generateWith(ctx, { llm, sel, system, history, userText, pool, actions, image });
+    const result = await generateWith(ctx, {
+      llm,
+      sel,
+      system: requestSystem,
+      history,
+      userText,
+      pool,
+      actions,
+      image,
+    });
     if (result.ok) return result;
     last = result;
     // 回落要留痕：配的模型没生效时能在日志里看到原因（否则「我明明配了 A，怎么还是用 B」没法查）

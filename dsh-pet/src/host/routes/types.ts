@@ -6,7 +6,9 @@
  * 不负责生命周期：store 的创建与销毁归 `apply`，路由只调用。
  * @module dsh-pet/src/host/routes/types
  */
-import type { ChatMemoryMessage } from '../chat.ts';
+import type { ChatCommand } from '../../shared/chat/commands.ts';
+import type { ChatCommandResult } from '../chat-commands.ts';
+import type { ChatMemoryFile } from '../chat-sessions.ts';
 import type { ConfigPaths } from '../config.ts';
 import type { RouteResult } from '../http.ts';
 import type { PetImageRef } from '../image-attachment.ts';
@@ -137,14 +139,16 @@ export interface PetRouteDeps {
     voiceTo?: VoiceTarget,
     kind?: 'whisper' | 'manual',
   ) => Promise<GeneratedReply>;
-  /** 读取对话记忆文件。 */
-  readonly readMemory: () => Promise<Record<string, Record<string, { messages: ChatMemoryMessage[] }>>>;
+  /** 读取并归一化对话记忆文件。 */
+  readonly readMemory: () => Promise<ChatMemoryFile>;
   /** 对话记忆文件路径。 */
   readonly memoryPath: string;
   /** 单次对话保留的轮数。 */
   readonly memoryRounds: (conf: Record<string, unknown>) => number;
   /** 与本机宠物对话；image 缺省 = 纯文本，数据路径与加入图片前一致。 */
   readonly chatWithPet: (petId: string, text: string, image?: PetImageRef) => Promise<GeneratedReply>;
+  /** 执行 new/resume/compact；与普通聊天共用记忆串行队列。 */
+  readonly runChatCommand: (petId: string, command: ChatCommand) => Promise<ChatCommandResult>;
   /** 删除该宠物的对话记忆：ts 缺省 = 清空全部，否则只删命中的轮（成对）。 */
   readonly deleteHistory: (
     petId: string,

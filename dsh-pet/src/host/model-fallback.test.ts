@@ -205,4 +205,25 @@ describe('调用形状 —— 调用身份与真实失败原因', () => {
     });
     assert.equal(r.ok === false && r.message, '模型未返回文本');
   });
+
+  test('有 contextSummary：拼到 system，历史与用户正文形状不变', async () => {
+    const { ctx, options } = fakeCtx(CURRENT, { current: 'ok' });
+    await generateChat({
+      ctx,
+      system: '人设',
+      contextSummary: '旧对话摘要',
+      history: [],
+      userText: '在吗',
+      pool: [],
+      preferred: undefined,
+    });
+    assert.equal(options[0]?.system, '人设\n\n[会话摘要]\n旧对话摘要');
+    assert.equal(options[0]?.sessionId, PET_CALL_IDENTITY);
+  });
+
+  test('无 contextSummary：system 原样发送，不追加摘要标题', async () => {
+    const { ctx, options } = fakeCtx(CURRENT, { current: 'ok' });
+    await generateChat({ ctx, system: '人设', history: [], userText: '在吗', pool: [], preferred: undefined });
+    assert.equal(options[0]?.system, '人设');
+  });
 });

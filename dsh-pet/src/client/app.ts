@@ -1,11 +1,10 @@
 /**
- * 浏览器半侧装配层：注入 react，组装宠物 overlay 与设置页，注册进 DSH 插槽。
- * 不负责页面业务：宠物页面在 pet.ts，设置页在 settings.ts。
+ * 浏览器半侧装配层：注入 react，组装设置页、对话与快捷键，注册进 DSH 插槽。
+ * 不负责页面业务：设置页在 settings.ts，对话在 chat/。
  * 依赖 DSH 注入的 slots / locale / remote / commandUi 等 Cordis 服务。
  * 任何可选能力缺失都只降级功能，绝不让整个插件加载失败。
  * @module dsh-pet/src/client/app
  */
-import { makePetUI } from './pet.ts';
 import { readPose } from './pose.ts';
 import { readProgress } from './progress.ts';
 import { takeMenuEvents } from './menu-service.ts';
@@ -60,9 +59,6 @@ export function makeFactory(): (require: (mod: string) => any) => any {
         '[dsh-pet] 图标渲染器不可用（react-dom 缺失）：' + (error instanceof Error ? error.message : String(error)),
       );
     }
-
-    // 宠物 overlay 与设置页各自独立成文件，这里只组装和注册。
-    const PetMulti = makePetUI({ h, useState, useEffect, useRef });
 
     const name = 'pet';
     // commandUi 声明为服务依赖，确保「/」命令服务就绪后才 apply，/pet 装饰必然注册成功。
@@ -167,11 +163,6 @@ export function makeFactory(): (require: (mod: string) => any) => any {
         }
         return installSectionNavIcon({ label: () => t('nav'), renderSvg: () => renderIcon(icon) });
       }, 'dsh-pet: settings nav icon');
-
-      // 宠物 overlay：容器渲染多个 PetCard。
-      ctx.slots.inject('shell.overlay', function* () {
-        yield ctx.slots.register({ name: 'shell.overlay', id: 'pet', order: 1000 }, () => h(PetMulti, {}));
-      });
 
       // 设置页「桌宠配置」：大小、位置、模型，保存即时生效。
       // useRef 供「AI 模型」下拉的浮层定位与外部点击判定使用。

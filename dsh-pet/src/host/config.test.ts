@@ -823,6 +823,37 @@ describe('配置合并与保存 —— sizePercent（合法才落键，缺省按
   });
 });
 
+describe('readAllConfig —— 旧 display=web 的桌面兼容归一', () => {
+  test('默认列表回退分支同样把 web 归一为 both', () => {
+    const paths = withBase({});
+    try {
+      const pets = readAllConfig(paths).main.pets as Record<string, unknown>[];
+      assert.equal(pets[0]?.display, 'both');
+    } finally {
+      rmSync(dirname(paths.defaultFile), { recursive: true, force: true });
+    }
+  });
+
+  test('web 归一为 both，desktop / both / none 原样保留', () => {
+    const displays = ['web', 'desktop', 'both', 'none'];
+    const paths = withBase(
+      {},
+      {
+        pets: displays.map((display, index) => ({ ...BASE.pets[0], id: `pet-${index}`, display })),
+      },
+    );
+    try {
+      const pets = readAllConfig(paths).main.pets as Record<string, unknown>[];
+      assert.deepEqual(
+        pets.map((pet) => pet.display),
+        ['both', 'desktop', 'both', 'none'],
+      );
+    } finally {
+      rmSync(dirname(paths.defaultFile), { recursive: true, force: true });
+    }
+  });
+});
+
 describe('saveUserConfig —— 物理参数 physics（白名单 + 透传保留）', () => {
   const PHYS: Record<string, unknown> = BASE.physics;
 

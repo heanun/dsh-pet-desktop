@@ -78,6 +78,7 @@ class PetSprite {
     window.__dshPetDebug.winMargin = this.margin;
     // 宠物包围盒左上角在【工作区】坐标系里的位置（本窗口的位置 = 宠物的位置）
     this.pos = { x: 0, y: 0 };
+    this.chatBaseMargin = null;
 
     // 配置派生字段：拍平的实例优先，其次全局，最后内置默认。
     // 拖拽抛掷物理参数
@@ -153,6 +154,38 @@ class PetSprite {
     void S.postAction(POSE_REPORT_URL + '?pet=' + encodeURIComponent(this.pet.id), body).then((ok) => {
       if (!ok) console.warn('[dsh-pet] 实况上报未送达 pet=' + this.pet.id);
     });
+  }
+
+  /** 同步窗口余量与 sprite 偏移，保证原生窗口原点变化时宠物视觉位置不变。 */
+  applyWindowMargin(margin) {
+    this.margin = margin;
+    window.__dshPetDebug.winMargin = this.margin;
+    this.el.style.left = margin.l + 'px';
+    this.el.style.top = margin.t + 'px';
+    this.sendBounds(this.pos.x, this.pos.y);
+  }
+
+  /** 聊天期间把透明窗口扩到宠物当前工作区，原生窗口不截断可拉伸的弹窗。 */
+  expandChatWindow() {
+    if (this.chatBaseMargin) return;
+    const area = S.resolveRect(WORK_AREAS, this.pos.x + this.halfW, this.pos.y + this.halfH);
+    if (!area) return;
+    const base = { ...this.margin };
+    this.chatBaseMargin = base;
+    this.applyWindowMargin({
+      t: Math.max(base.t, this.pos.y - area.y),
+      r: Math.max(base.r, area.x + area.width - this.pos.x - this.size),
+      b: Math.max(base.b, area.y + area.height - this.pos.y - this.winH),
+      l: Math.max(base.l, this.pos.x - area.x),
+    });
+  }
+
+  /** 聊天关闭后恢复进入前的余量与原生 bounds。 */
+  restoreChatWindow() {
+    if (!this.chatBaseMargin) return;
+    const base = this.chatBaseMargin;
+    this.chatBaseMargin = null;
+    this.applyWindowMargin(base);
   }
 
   sendBounds(px, py) {

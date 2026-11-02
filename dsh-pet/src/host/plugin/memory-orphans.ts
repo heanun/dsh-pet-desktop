@@ -6,10 +6,8 @@
  * @module dsh-pet/src/host/plugin/memory-orphans
  */
 import type { ChatMemoryMessage } from '../chat.ts';
+import type { ChatMemoryFile, PetChatSessions } from '../chat-sessions.ts';
 import { findPetInstance, readAllConfig, type ConfigPaths } from '../config.ts';
-
-/** 记忆文件的形状（与 chat-memory 的读写一致）。 */
-type MemoryFile = Record<string, Record<string, { messages: ChatMemoryMessage[] }>>;
 
 /** 一个残留分桶的摘要（不含正文）。 */
 export interface OrphanBucket {
@@ -22,8 +20,8 @@ export interface OrphanBucket {
 /** 依赖：配置路径、记忆读写、串行队列与日志出口。 */
 export interface OrphanDeps {
   readonly configPaths: ConfigPaths;
-  readonly readMemory: () => Promise<MemoryFile>;
-  readonly writeMemory: (mem: MemoryFile) => Promise<void>;
+  readonly readMemory: () => Promise<ChatMemoryFile>;
+  readonly writeMemory: (mem: ChatMemoryFile) => Promise<void>;
   readonly withLock: <T>(fn: () => Promise<T>) => Promise<T>;
   /** 只记数量，不记正文。 */
   readonly log: { info(message: string): void };
@@ -46,8 +44,13 @@ export function createMemoryOrphans(deps: OrphanDeps) {
       if (!byPet || typeof byPet !== 'object') continue;
       for (const [petId, leaf] of Object.entries(byPet)) {
         if (findPetInstance(cfg, petId)) continue;
-        const list = Array.isArray(leaf?.messages) ? leaf.messages : [];
-        out.push({ entry, petId, messages: list.length, lastTs: Number(list[list.length - 1]?.ts ?? 0) });
+        const list = allSessionMessages(leaf);
+        out.push({
+          entry,
+          petId,
+          messages: list.length,
+          lastTs: list.reduce((latest, message) => Math.max(latest, message.ts), 0),
+        });
       }
     }
     return out;
@@ -64,7 +67,7 @@ export function createMemoryOrphans(deps: OrphanDeps) {
         if (!byPet || typeof byPet !== 'object') continue;
         for (const [petId, leaf] of Object.entries(byPet)) {
           if (findPetInstance(cfg, petId)) continue;
-          messages += Array.isArray(leaf?.messages) ? leaf.messages.length : 0;
+          messages += allSessionMessages(leaf).length;
           pets += 1;
           delete byPet[petId];
         }
@@ -76,4 +79,8 @@ export function createMemoryOrphans(deps: OrphanDeps) {
     });
 
   return { orphanHistory, deleteOrphans };
+}
+
+function allSessionMessages(leaf: PetChatSessions): ChatMemoryMessage[] {
+  return leaf.sessions.flatMap((session) => session.messages);
 }

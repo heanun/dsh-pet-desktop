@@ -2,7 +2,7 @@
 /**
  * 系统托盘：桌面模式的显示开关与「退出」入口。
  *
- * 托盘是桌面模式唯一不进浏览器的入口——某只宠物改成 web/none 后窗口与右键菜单一起消失，
+ * 托盘是桌面模式唯一不进设置页的入口——某只宠物改成 none 后窗口与右键菜单一起消失，
  * 只有托盘还能把它切回来。菜单是静态的：切换 display 后宿主会重启本进程，新进程按新配置重建。
  * @module dsh-pet/runtime/electron-helper/main/tray
  */
@@ -39,9 +39,9 @@ function createTray({
 }) {
   const isDesktopDisplay = (display) => display === 'desktop' || display === 'both';
 
-  /** 翻转「桌面位」：both↔web、desktop↔none——浏览器位保持不动，因此不制造新的单向门 */
+  /** 翻转桌面可见性；旧 web 值只作为输入兼容，不再写回仅网页档位。 */
   const toggleDisplay = (display) =>
-    display === 'both' ? 'web' : display === 'web' ? 'both' : display === 'desktop' ? 'none' : 'desktop';
+    display === 'both' ? 'none' : display === 'web' ? 'both' : display === 'desktop' ? 'none' : 'desktop';
 
   let tray = null;
 
@@ -129,7 +129,7 @@ function createTray({
   }
 
   /**
-   * 建托盘：列出配置里全部宠物（含 display 为 web/none 的——它们当前勾是空的，点一下就能送回来，
+   * 建托盘：列出配置里全部宠物（含 display 为 none 的——它们当前勾是空的，点一下就能送回来，
    * 这是托盘相对宠物右键菜单的增量）。勾 = 当前 display 含 desktop/both。
    */
   async function startTray() {

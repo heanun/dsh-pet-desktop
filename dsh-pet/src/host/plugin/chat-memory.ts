@@ -6,11 +6,22 @@
  * @module dsh-pet/src/host/plugin/chat-memory
  */
 import { join } from 'node:path';
-import { generateChat, type ChatMemoryMessage } from '../chat.ts';
+import { randomUUID } from 'node:crypto';
+import { generateChat } from '../chat.ts';
 import { chatActionNames } from '../chat-action.ts';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { composeSystemPrompt, petPersona } from '../persona.ts';
-import { findPetInstance, readAllConfig, removeRoundsByTs, sliceMemoryRounds } from '../config.ts';
+import { findPetInstance, readAllConfig } from '../config.ts';
+import {
+  appendChatTurn,
+  chatSessionContext,
+  createPetChatSessions,
+  ensureActiveChatSession,
+  normalizeChatMemory,
+  removeChatRounds,
+  type ChatMemoryFile,
+} from '../chat-sessions.ts';
+import { createChatCommands } from '../chat-commands.ts';
 import type { PetImageRef } from '../image-attachment.ts';
 import { limitPool, matchMeme, pickMeme, readMemePool } from '../memes.ts';
 import { generateWhisper } from '../whisper.ts';
@@ -50,14 +61,14 @@ export function createChatMemory(deps: ChatMemoryInput) {
   const lastWhisperAt = new Map<string, number>();
 
   // 对话记忆文件（唯一读写方 = 本进程；浏览器/桌面两端都只是客户端 → 同一实例天然共享同一份记忆）。
-  // 结构双层：{ <种类桶 assetRoot ?? petId>: { <实例 id>: { messages: ChatMemoryMessage[] } } }
+  // 读取时统一归一化为多会话叶子；旧 messages 格式只有后续写操作才会落盘迁移。
   const memoryPath = join(userRoot, 'memory.json');
 
   // 对话写操作串行队列：read-modify-write 排队执行，防两端同时对话时交错写盘
   let chatQueue: Promise<void> = Promise.resolve();
 
   /** 读记忆文件：不存在 → 空；解析失败/根不是对象 → 记日志 + 空记忆（不备份、不改写源文件） */
-  const readMemory = async (): Promise<Record<string, Record<string, { messages: ChatMemoryMessage[] }>>> => {
+  const readMemory = async (): Promise<ChatMemoryFile> => {
     let raw: string;
     try {
       raw = await readFile(memoryPath, 'utf8');
@@ -65,9 +76,9 @@ export function createChatMemory(deps: ChatMemoryInput) {
       return {}; // 文件不存在 = 尚无记忆
     }
     try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const parsed = JSON.parse(raw) as unknown;
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
-      return parsed as Record<string, Record<string, { messages: ChatMemoryMessage[] }>>;
+      return normalizeChatMemory(parsed);
     } catch (e) {
       log.error(
         `dsh-pet: 记忆文件无法解析（对话将从头开始）：${memoryPath}（${e instanceof Error ? e.message : String(e)}）`,
@@ -76,7 +87,7 @@ export function createChatMemory(deps: ChatMemoryInput) {
     }
   };
 
-  const writeMemory = async (mem: Record<string, Record<string, { messages: ChatMemoryMessage[] }>>): Promise<void> => {
+  const writeMemory = async (mem: ChatMemoryFile): Promise<void> => {
     await mkdir(userRoot, { recursive: true });
     await writeFile(memoryPath, JSON.stringify(mem, null, 2), 'utf8');
   };
@@ -241,19 +252,10 @@ export function createChatMemory(deps: ChatMemoryInput) {
       // 动作名单：开关开启才取（关掉 = 不注入也不解析）；名单本身为空（没配 categories）同样等于关闭。
       const actions = found.conf.chatAnimationEnabled === true ? chatActionNames(found.conf.animations) : [];
       const mem = await readMemory();
-      // 坏结构（数组/标量）按空桶重建；messages 不是数组的条目按新会话处理，避免 push 到坏对象上崩溃
-      const bucket =
-        mem[found.entry] && typeof mem[found.entry] === 'object' && !Array.isArray(mem[found.entry])
-          ? mem[found.entry]
-          : (mem[found.entry] = {});
-      const existing = bucket[petId];
-      if (existing !== undefined && (!existing || !Array.isArray(existing.messages))) {
-        log.error(`[dsh-pet] 记忆结构异常（messages 不是数组）pet=${petId}，按新会话处理：${memoryPath}`);
-      }
-      const entry = existing && Array.isArray(existing.messages) ? existing : (bucket[petId] = { messages: [] });
-      // rounds = 0（用户关掉历史）→ 空历史；否则截尾部 rounds 轮（1 轮 = 1 问 1 答）。
-      // 不能写 slice(-rounds * 2)：-0 在 JS 里 === 0，slice(-0) 返回整个数组而不是空。
-      const list = sliceMemoryRounds(entry.messages, rounds);
+      const bucket = (mem[found.entry] ??= {});
+      const leaf = (bucket[petId] ??= createPetChatSessions(randomUUID(), Date.now()));
+      const session = ensureActiveChatSession(leaf, randomUUID(), Date.now());
+      const context = chatSessionContext(session, rounds);
       // 图片只记尺寸与字节数（不记 base64）：模型不支持读图时 dsh-llm 会把它投影成占位文本，靠这行日志定位
       if (image !== undefined) {
         log.info(
@@ -265,26 +267,30 @@ export function createChatMemory(deps: ChatMemoryInput) {
       const generated = await generateChat({
         ctx,
         system,
-        history: list,
+        history: context.history,
         userText: text,
         pool,
         actions,
         preferred: configuredModel(found.conf, 'chatModel'),
         image,
+        ...(context.contextSummary === undefined ? {} : { contextSummary: context.contextSummary }),
       });
       if (!generated.ok) return generated;
       const now = Date.now();
       // 图信息只存不送：记忆要能还原「这一轮带过图、配过哪张」（聊天记录存档），
       // 但历史回放一律只带正文——否则每轮都会把旧图重发一遍给模型。
-      entry.messages.push({ role: 'user', content: text, ts: now, ...(image ? { image } : {}) });
-      entry.messages.push({
-        role: 'assistant',
-        content: generated.text,
-        ts: now,
-        ...(generated.image ? { meme: generated.image } : {}),
-        // 动作名与配图名同类：只存不送——历史回放只带正文，否则每轮都会把动作标记重发一遍
-        ...(generated.action ? { action: generated.action } : {}),
-      });
+      appendChatTurn(
+        session,
+        { role: 'user', content: text, ts: now, ...(image ? { image } : {}) },
+        {
+          role: 'assistant',
+          content: generated.text,
+          ts: now,
+          ...(generated.image ? { meme: generated.image } : {}),
+          ...(generated.action ? { action: generated.action } : {}),
+        },
+        now,
+      );
       await writeMemory(mem);
       // 动作先写：与 POST /anim 同一条写回链路（记录 + anim 叶子），渲染端据此播放并回报执。
       if (generated.action !== undefined) {
@@ -308,9 +314,7 @@ export function createChatMemory(deps: ChatMemoryInput) {
       return { ok: true as const, text: generated.text, ...(generated.image ? { image: generated.image } : {}) };
     });
 
-  /** 删除某只宠物的对话记忆：`ts` 缺省 = 清空全部，给了 ts = 只删命中的轮（一轮两条共享 ts，成对删）。
-   *  与对话共用同一条串行队列——删除不会插进一次回复的读-改-写中间，也不会被它覆盖写回。
-   *  删空的宠物连叶子与空条目一起摘掉：否则 memory.json 里会永久堆着空对象，看不出这里曾有历史。 */
+  /** 删除记忆：全清覆盖所有会话；按 ts 只删 active，并在删到 cutoff 前内容时废弃摘要。 */
   const deleteHistory = async (
     petId: string,
     ts?: readonly number[],
@@ -318,26 +322,25 @@ export function createChatMemory(deps: ChatMemoryInput) {
     withMemoryLock(async () => {
       const cfg = readAllConfig(configPaths);
       const found = findPetInstance(cfg, petId);
-      // 与对话同一支：宠物随时可能被删，明确失败，不在文件里留没人消费的分桶
       if (!found) return { ok: false as const, reason: 'unknown-pet' as const, message: '没有这只桌宠：' + petId };
       const mem = await readMemory();
       const byPet = mem[found.entry];
-      const before = byPet?.[petId]?.messages;
-      const list = Array.isArray(before) ? before : [];
-      const kept = ts === undefined ? [] : removeRoundsByTs(list, ts).messages;
-      const removed = list.length - kept.length;
-      if (removed > 0) {
-        const leaf = byPet?.[petId];
-        if (kept.length > 0 && leaf !== undefined) {
-          leaf.messages = kept;
-        } else if (byPet !== undefined) {
-          // 清空（或本来就只剩坏数据）：摘掉宠物叶子；条目空了连条目一起摘
+      const leaf = byPet?.[petId];
+      let removed = 0;
+      if (ts === undefined) {
+        removed = leaf?.sessions.reduce((total, session) => total + session.messages.length, 0) ?? 0;
+        if (byPet !== undefined) {
           delete byPet[petId];
           if (Object.keys(byPet).length === 0) delete mem[found.entry];
         }
-        await writeMemory(mem);
+      } else {
+        const session = leaf?.sessions.find((candidate) => candidate.id === leaf.activeSessionId);
+        if (session !== undefined) {
+          removed = removeChatRounds(session, ts);
+          if (removed > 0) session.updatedAt = Date.now();
+        }
       }
-      // 只记数量与动作，不打正文（记忆内容是用户隐私）
+      if (removed > 0) await writeMemory(mem);
       log.info(`[dsh-pet] 删除对话记忆 pet=${petId}，removed=${removed}` + (ts === undefined ? '（清空）' : ''));
       return { ok: true as const, removed };
     });
@@ -349,6 +352,15 @@ export function createChatMemory(deps: ChatMemoryInput) {
     writeMemory,
     withLock: withMemoryLock,
     log,
+  });
+
+  const { runChatCommand } = createChatCommands({
+    ctx,
+    configPaths,
+    readMemory,
+    writeMemory,
+    withLock: withMemoryLock,
+    petSystemPrompt,
   });
 
   /** 当前活跃宠物 id（会话事件写入，余额与碎念读取）。 */
@@ -366,6 +378,7 @@ export function createChatMemory(deps: ChatMemoryInput) {
     publishWhisper,
     publishSleepTalk,
     chatWithPet,
+    runChatCommand,
     deleteHistory,
     orphanHistory,
     deleteOrphans,
