@@ -239,7 +239,7 @@ Object.assign(PetSprite.prototype, {
    *
    * 来源是拖拽中 / 右键菜单开着 / 对话或待办弹窗开着（外加可点的余额气泡）：它们都靠窗口级鼠标事件驱动，
    * 窗口一变回穿透输入链就断（拖拽定格、松手也没人报 pointerup）。
-   * 这是渲染端专有的知识，主进程无从推断；同时上报控件矩形，菜单/聊天框外仍继续穿透。
+   * 这是渲染端专有的知识，主进程无从推断；同时上报控件矩形，非拉伸时菜单/聊天框外仍继续穿透。
    */
   inputBusy() {
     // 可点的余额气泡是第四个来源：它长在窗口里、靠窗口级 click 触发，却悬在平时穿透的余量区，
@@ -295,7 +295,7 @@ Object.assign(PetSprite.prototype, {
         rects.push({ x: toScreen(r.x), y: toScreen(r.y), width: toScreen(r.width), height: toScreen(r.height) });
       }
     }
-    const input = { dragging: this.dragState.active, rects };
+    const input = { dragging: this.dragState.active || this.chatResizing === true, rects };
     const key = JSON.stringify(input);
     if (key === this._inputRegions) return;
     this._inputRegions = key;

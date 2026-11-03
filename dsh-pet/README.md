@@ -1,6 +1,6 @@
 # dsh-pet-desktop
 
-Windows 桌面会话助手，支持本地 `new` / `resume` / `compact` 会话命令、聊天框拉伸，以及单文件 portable 运行。“仅桌面”模式不始终置顶。
+Windows 桌面会话助手，支持本地 `new` / `resume` / `compact` 会话命令与斜杠补全、聊天框拉伸，以及单文件 portable 运行。“仅桌面”模式不始终置顶。
 
 - [项目说明与许可](../README.md)
 - [Windows 使用与 Linux 构建](../INSTALL.md)

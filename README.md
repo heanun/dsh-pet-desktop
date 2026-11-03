@@ -14,7 +14,7 @@
 
 ## Windows 使用
 
-已有构建产物时，只需将 `dsh-pet-desktop-0.4.0-portable.exe` 复制到 Windows x64 电脑，双击运行。无需复制其他构建文件，也无需在 Windows 上安装 Node.js 或 pnpm。
+已有构建产物时，只需将 `dsh-pet-desktop-X.X.X.exe` 复制到 Windows x64 电脑，双击运行。无需复制其他构建文件，也无需在 Windows 上安装 Node.js 或 pnpm。
 
 这是 portable 单文件：每次启动都会先把应用自解压到 `%TEMP%` 的临时目录，退出后清理，因此启动会比直接运行解包后的应用稍慢。配置和日志不写入该临时目录，详见[数据与日志](#数据与日志)。
 
@@ -59,10 +59,10 @@ pnpm install
 ./build.sh
 ```
 
-最终产物位于包根目录：
+最终产物位于包根目录。`X.X.X` 取自仓库中最高的 `vX.X.X` / `VX.X.X` 标签，没有有效标签时使用 `package.json` 版本：
 
 ```text
-dist-app/dsh-pet-desktop-0.4.0-portable.exe
+dist-app/dsh-pet-desktop-X.X.X.exe
 ```
 
 完整说明见 [INSTALL.md](INSTALL.md)。

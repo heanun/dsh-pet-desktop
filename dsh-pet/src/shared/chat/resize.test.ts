@@ -62,6 +62,7 @@ function makeDriver(maxWidth = 340, maxHeight = 500) {
   const input = Object.assign(new FakeTarget(), { value: '', scrollHeight: 22 });
   const handles = { right: new FakeTarget(), bottom: new FakeTarget(), corner: new FakeTarget() };
   let layoutCount = 0;
+  const activeChanges: boolean[] = [];
   Object.defineProperty(root, 'getBoundingClientRect', {
     value: () => ({
       width: Number.parseFloat(root.style.width ?? '160'),
@@ -81,8 +82,9 @@ function makeDriver(maxWidth = 340, maxHeight = 500) {
     onLayout: () => {
       layoutCount += 1;
     },
+    onActiveChange: (active) => activeChanges.push(active),
   });
-  return { root, input, handles, driver, layoutCount: () => layoutCount };
+  return { root, input, handles, driver, layoutCount: () => layoutCount, activeChanges };
 }
 
 describe('聊天框双向拉伸', () => {
@@ -170,7 +172,7 @@ describe('聊天框双向拉伸', () => {
   });
 
   test('丢失 pointer capture → 清理活动态并忽略后续移动', () => {
-    const { root, handles, driver, layoutCount } = makeDriver();
+    const { root, handles, driver, layoutCount, activeChanges } = makeDriver();
     handles.right.emit('pointerdown', pointerEvent(2, 10));
     handles.right.emit('pointermove', pointerEvent(2, 40));
     handles.right.captures.clear();
@@ -179,15 +181,17 @@ describe('聊天框双向拉伸', () => {
     handles.right.emit('pointermove', pointerEvent(2, 200));
     assert.equal(root.style.width, '190px');
     assert.equal(layoutCount(), count);
+    assert.deepEqual(activeChanges, [true, false]);
     driver.dispose();
   });
 
-  test('活动中 dispose → 释放捕获并解绑全部输入与手柄监听', () => {
-    const { input, handles, driver } = makeDriver();
+  test('活动中 dispose → 释放捕获、输入租约和全部输入与手柄监听', () => {
+    const { input, handles, driver, activeChanges } = makeDriver();
     handles.corner.emit('pointerdown', pointerEvent(5, 10, 10));
     driver.dispose();
     assert.equal(handles.corner.captures.size, 0);
     assert.equal(input.listeners.get('input')?.size ?? 0, 0);
+    assert.deepEqual(activeChanges, [true, false]);
     for (const handle of Object.values(handles)) {
       for (const type of [
         'pointerdown',

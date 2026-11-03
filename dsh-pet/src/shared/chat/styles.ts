@@ -62,6 +62,13 @@ export const CHAT_CSS = [
   '.dsh-pet-chat-session-empty{padding:6px 8px;font-size:12px;opacity:.65}',
   '.dsh-pet-chat-session-cancel{display:block;margin:3px 0 0 auto;padding:3px 6px;border:none;background:transparent;',
   'color:inherit;font:inherit;font-size:12px;cursor:pointer}',
+  '.dsh-pet-chat-commands{display:none;max-height:180px;overflow-y:auto;padding:0 8px 6px;user-select:text}',
+  '.dsh-pet-chat-commands[data-on="1"]{display:block}',
+  '.dsh-pet-chat-command{display:flex;align-items:center;gap:10px;width:100%;padding:7px 8px;border:none;border-radius:6px;',
+  'background:transparent;color:inherit;text-align:left;cursor:pointer;font:inherit}',
+  '.dsh-pet-chat-command[data-selected="1"],.dsh-pet-chat-command:hover{background:rgba(0,0,0,.06)}',
+  '.dsh-pet-chat-command-usage{flex:none;font-family:monospace;font-size:12px}',
+  '.dsh-pet-chat-command-description{margin-left:auto;font-size:11px;opacity:.72;white-space:nowrap}',
   '.dsh-pet-chat-resize{position:absolute;z-index:2;touch-action:none}',
   '.dsh-pet-chat-resize-e{right:0;top:0;bottom:0;width:8px;cursor:ew-resize}',
   '.dsh-pet-chat-resize-s{left:0;right:0;bottom:0;height:8px;cursor:ns-resize}',
@@ -79,6 +86,8 @@ export const CHAT_CSS = [
   '.dsh-pet-chat[data-surface="desktop"] .dsh-pet-chat-err{color:#ffe1de}',
   '.dsh-pet-chat[data-surface="desktop"] .dsh-pet-chat-session:hover:not(:disabled),',
   '.dsh-pet-chat[data-surface="desktop"] .dsh-pet-chat-session:focus-visible{background:rgba(255,255,255,.14)}',
+  '.dsh-pet-chat[data-surface="desktop"] .dsh-pet-chat-command[data-selected="1"],',
+  '.dsh-pet-chat[data-surface="desktop"] .dsh-pet-chat-command:hover{background:rgba(255,255,255,.14)}',
 ].join('');
 
 /** 输入框宽度自适应参数：初始小宽，随文本增宽，封顶后折行增高。 */

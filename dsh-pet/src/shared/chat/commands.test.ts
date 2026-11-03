@@ -1,6 +1,28 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { parseChatCommand, parseChatCommandEffect } from './commands.ts';
+import { listChatCommandCompletions, parseChatCommand, parseChatCommandEffect } from './commands.ts';
+
+describe('listChatCommandCompletions', () => {
+  test('斜杠及名称前缀 → 返回匹配命令和用途说明', () => {
+    assert.deepEqual(
+      listChatCommandCompletions('/').map((item) => item.name),
+      ['new', 'resume', 'compact'],
+    );
+    assert.deepEqual(listChatCommandCompletions('/r'), [
+      { name: 'resume', usage: '/resume [session-id]', description: '恢复历史会话' },
+    ]);
+    assert.deepEqual(
+      listChatCommandCompletions('/c').map((item) => item.name),
+      ['compact'],
+    );
+  });
+
+  test('参数、普通文本和未知命令 → 不显示候选', () => {
+    for (const text of ['resume', '/resume ', '/unknown', '你好', ' /n']) {
+      assert.deepEqual(listChatCommandCompletions(text), []);
+    }
+  });
+});
 
 describe('parseChatCommand', () => {
   test('三个命令及斜杠别名 → 正确解析', () => {

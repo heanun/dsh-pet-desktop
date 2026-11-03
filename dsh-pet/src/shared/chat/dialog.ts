@@ -51,14 +51,19 @@ interface SendBinding {
   readonly notify: (text: string) => void;
 }
 
-/** 点弹窗外或按 Esc 关闭；返回解绑函数。 */
-function bindDismiss(root: HTMLElement, isClosed: () => boolean, onDismiss: () => void): () => void {
+/** 点弹窗外或按 Esc 关闭；补全菜单打开时 Esc 只收起菜单。 */
+function bindDismiss(
+  root: HTMLElement,
+  isClosed: () => boolean,
+  canDismiss: () => boolean,
+  onDismiss: () => void,
+): () => void {
   const onPointerDown = (e: MouseEvent): void => {
     if (isClosed() || root.contains(e.target as Node)) return;
     onDismiss();
   };
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') onDismiss();
+    if (e.key === 'Escape' && canDismiss()) onDismiss();
   };
   document.addEventListener('mousedown', onPointerDown, true);
   document.addEventListener('keydown', onKeyDown, true);
@@ -132,6 +137,8 @@ export interface ChatDialogOptions {
   /** 发送成功后调用；桌面弹窗仍打开，网页弹窗已关闭。 */
   onSent?: () => void;
   onClose?: () => void;
+  /** 拉伸开始时持有桌面输入租约，结束后释放。 */
+  onResizeActive?: (active: boolean) => void;
   /** 弹窗允许占用的矩形（视口局部坐标）；缺省 = 整个视口。 */
   clamp?: { x: number; y: number; w: number; h: number };
   /** 打开时就带着的图片（拖拽落到宠物身上走的这条）；缺省 = 空弹窗。 */
@@ -165,6 +172,7 @@ export function mountChatDialog(opts: ChatDialogOptions): ChatDialogMount {
     maxWidth: () => c.w - 8,
     maxHeight: () => c.h - 8,
     onLayout: () => place(),
+    onResizeActive: opts.onResizeActive,
   });
   const { root, input, err } = dom;
   root.dataset.surface = surface;
@@ -196,7 +204,12 @@ export function mountChatDialog(opts: ChatDialogOptions): ChatDialogMount {
     root.remove();
     if (onClose) onClose();
   };
-  unbindDismiss = bindDismiss(root, () => closed, close);
+  unbindDismiss = bindDismiss(
+    root,
+    () => closed,
+    () => !dom.isCommandMenuOpen(),
+    close,
+  );
   const send = bindSend({
     input,
     err,

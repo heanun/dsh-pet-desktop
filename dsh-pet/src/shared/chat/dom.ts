@@ -8,6 +8,7 @@ import { createHearControl } from './hear-control.ts';
 import { IMAGE_ACCEPT, firstImageFromClipboard, isImageFile } from './image-pick.ts';
 import { cameraIcon, micIcon, pictureIcon } from './icons.ts';
 import type { ChatSessionSummary } from './commands.ts';
+import { createChatCommandMenu } from './command-completion.ts';
 import { createChatResizeDriver } from './resize.ts';
 import type { ChatAttachment } from './send.ts';
 
@@ -42,6 +43,8 @@ export interface ChatDom {
   ) => void;
   /** 收起会话选择列表。 */
   readonly hideSessions: () => void;
+  /** 补全菜单是否打开；打开时 Esc 由菜单处理。 */
+  readonly isCommandMenuOpen: () => boolean;
   /** 从外部开录（快捷键「按住说话」用）；录不了时给一句原因，已在录时什么都不做。 */
   readonly startHear: () => void;
   /** 从外部收尾（快捷键松手用）；没在录时什么都不做。 */
@@ -77,6 +80,7 @@ export function createChatDom(
     maxWidth?: () => number;
     maxHeight?: () => number;
     onLayout?: () => void;
+    onResizeActive?: (active: boolean) => void;
   } = {},
 ): ChatDom {
   const root = document.createElement('div');
@@ -206,8 +210,11 @@ export function createChatDom(
     maxWidth: opts.maxWidth ?? (() => window.innerWidth - 8),
     maxHeight: opts.maxHeight ?? (() => window.innerHeight - 8),
     onLayout: opts.onLayout ?? (() => {}),
+    onActiveChange: opts.onResizeActive,
   });
   const resizeInput = resize.resizeInput;
+  const commandMenu = createChatCommandMenu({ input, onChange: resizeInput });
+  root.insertBefore(commandMenu.el, input);
 
   let attachment: ChatAttachment | undefined;
   let encoding = false;
@@ -302,12 +309,14 @@ export function createChatDom(
     flash,
     showSessions,
     hideSessions,
+    isCommandMenuOpen: commandMenu.isOpen,
     startHear: hear.start,
     stopHear: hear.stop,
     isHearing: hear.isHearing,
     dispose: () => {
       window.clearTimeout(hintTimer);
       resize.dispose();
+      commandMenu.dispose();
       hear.dispose();
     },
   };

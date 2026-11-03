@@ -59,6 +59,6 @@ win:
     - portable
 
 portable:
-  artifactName: dsh-pet-desktop-${version}-portable.${ext}
+  artifactName: dsh-pet-desktop-${version}.${ext}
   requestExecutionLevel: user
   unpackDirName: false

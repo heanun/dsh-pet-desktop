@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveArtifactVersion } from './artifact-version.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -78,12 +79,14 @@ if (electronDist) {
   delete env.ELECTRON_SKIP_BINARY_DOWNLOAD;
 }
 
+const artifactVersion = resolveArtifactVersion(root);
 console.log(`[dist] electron dist: ${electronDist ?? '(无 → 由 electron-builder 下载)'}`);
 console.log(`[dist] target:        win:${target}`);
+console.log(`[dist] version:       ${artifactVersion}`);
 // 直接调用 electron-builder 的 CLI 文件而不经 `pnpm exec`：安装路径可能含单引号，
 // 走 shell 传参会被切碎；node 直接 spawn 没有这层转义问题。
 const cli = join(root, 'node_modules', 'electron-builder', 'out', 'cli', 'cli.js');
-const args = [cli, '--win', target];
+const args = [cli, '--win', target, `--config.extraMetadata.version=${artifactVersion}`];
 if (electronDist) args.push(`--config.electronDist=${electronDist}`);
 const child = spawn(process.execPath, args, {
   cwd: root,

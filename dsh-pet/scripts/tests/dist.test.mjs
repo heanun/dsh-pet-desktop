@@ -10,6 +10,13 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const yaml = require('js-yaml');
 const root = fileURLToPath(new URL('../../', import.meta.url));
+const { versionFromTags } = await import('../artifact-version.mjs');
+
+test('标签版本 → 支持 v/V 前缀并回退到包清单版本', () => {
+  assert.equal(versionFromTags(['V1.0.0', 'v0.4.0'], '0.4.0'), '1.0.0');
+  assert.equal(versionFromTags(['nightly', 'v1.0.0-beta.1'], '0.4.0'), '0.4.0');
+  assert.equal(versionFromTags([], '0.4.0'), '0.4.0');
+});
 
 test('dist 默认调用 electron-builder --win portable，不执行真实构建', () => {
   const sandbox = mkdtempSync(join(tmpdir(), 'dsh-pet-dist-'));
@@ -20,6 +27,8 @@ test('dist 默认调用 electron-builder --win portable，不执行真实构建'
     mkdirSync(dirname(script), { recursive: true });
     mkdirSync(cliDir, { recursive: true });
     copyFileSync(join(root, 'scripts/dist.mjs'), script);
+    copyFileSync(join(root, 'scripts/artifact-version.mjs'), join(sandbox, 'scripts/artifact-version.mjs'));
+    writeFileSync(join(sandbox, 'package.json'), JSON.stringify({ version: '0.4.0' }));
     writeFileSync(
       join(cliDir, 'cli.js'),
       "import { writeFileSync } from 'node:fs';\nwriteFileSync(process.env.DSH_PET_TEST_ARGS, JSON.stringify(process.argv.slice(2)));\n",
@@ -38,7 +47,11 @@ test('dist 默认调用 electron-builder --win portable，不执行真实构建'
       encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')), ['--win', 'portable']);
+    assert.deepEqual(JSON.parse(readFileSync(argsFile, 'utf8')), [
+      '--win',
+      'portable',
+      '--config.extraMetadata.version=0.4.0',
+    ]);
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }
@@ -59,7 +72,7 @@ test('Windows portable 配置保留内部名称并固定单文件产物名', () 
   assert.equal(config.appId, 'com.pc2005.dsh-pet');
   assert.deepEqual(config.win.target, ['portable']);
   assert.deepEqual(config.portable, {
-    artifactName: 'dsh-pet-desktop-${version}-portable.${ext}',
+    artifactName: 'dsh-pet-desktop-${version}.${ext}',
     requestExecutionLevel: 'user',
     unpackDirName: false,
   });

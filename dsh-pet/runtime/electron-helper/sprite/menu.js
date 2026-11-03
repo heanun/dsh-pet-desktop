@@ -292,6 +292,10 @@ Object.assign(PetSprite.prototype, {
       capture: () => this.captureEncoded(),
       // 弹窗同菜单：只允许在「窗口 ∩ 工作区」内显示，贴边时不被屏幕裁掉
       clamp: this.visibleClampRect(),
+      onResizeActive: (active) => {
+        this.chatResizing = active;
+        this.syncInputRegions();
+      },
       onSent: () => {
         // 发送成功：回复已写进 S → 版本号变 → 挂着的长轮询立刻返回并弹气泡
         console.info('[dsh-pet] 对话已发送 pet=' + this.pet.id);
@@ -299,6 +303,7 @@ Object.assign(PetSprite.prototype, {
       onClose: () => {
         this.chatMount = null;
         this.chatOpen = false;
+        this.chatResizing = false;
         window.__dshPetDebug.chatOpen = false;
         this.restoreChatWindow();
         this.syncInputBusy(); // 弹窗关：交还常规判定（菜单还开着的话仍保持忙）

@@ -23,11 +23,33 @@ export type ChatCommand =
   | { readonly kind: 'compact' }
   | { readonly kind: 'invalid'; readonly message: string };
 
+/** 斜杠命令的补全展示信息。 */
+export interface ChatCommandCompletion {
+  readonly name: 'new' | 'resume' | 'compact';
+  readonly usage: string;
+  readonly description: string;
+}
+
+const CHAT_COMMAND_COMPLETIONS: readonly ChatCommandCompletion[] = [
+  { name: 'new', usage: '/new', description: '新建会话' },
+  { name: 'resume', usage: '/resume [session-id]', description: '恢复历史会话' },
+  { name: 'compact', usage: '/compact', description: '压缩当前会话上下文' },
+];
+
+/** 返回斜杠命令候选；输入参数或普通文本时不弹出补全。 */
+export function listChatCommandCompletions(text: string): readonly ChatCommandCompletion[] {
+  if (!text.startsWith('/') || /\s/.test(text)) return [];
+  const query = text.slice(1);
+  return CHAT_COMMAND_COMPLETIONS.filter((completion) => completion.name.startsWith(query));
+}
+
 /** 解析 new/resume/compact 及其斜杠别名；其它输入返回 undefined。 */
 export function parseChatCommand(text: string): ChatCommand | undefined {
-  const matched = /^\/?(new|resume|compact)(?:\s+([\s\S]*))?$/.exec(text.trim());
+  const matched = /^\/?([a-z]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
   if (!matched) return undefined;
-  const name = matched[1];
+  const completion = CHAT_COMMAND_COMPLETIONS.find((item) => item.name === matched[1]);
+  if (!completion) return undefined;
+  const name = completion.name;
   const argument = matched[2]?.trim() ?? '';
   if (name === 'resume') {
     if (/\s/.test(argument)) return { kind: 'invalid', message: '用法：resume [session-id]' };

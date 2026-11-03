@@ -11,7 +11,7 @@
 最终产物为单个文件：
 
 ```text
-dsh-pet-desktop-0.4.0-portable.exe
+dsh-pet-desktop-X.X.X.exe
 ```
 
 只需把这个 EXE 复制到 Windows x64 电脑的本地目录，双击运行。无需安装，也无需复制 `dist-app` 中的其他文件；Windows 运行端不需要 Node.js 或 pnpm。
@@ -87,16 +87,16 @@ pnpm install
 
 `pnpm install` 安装构建依赖，`./build.sh` 完成应用构建和 Windows portable 打包。
 
-构建完成后，产物位于包根目录：
+构建完成后，产物位于包根目录。`X.X.X` 取自仓库中最高的 `vX.X.X` / `VX.X.X` 标签，没有有效标签时使用 `package.json` 版本：
 
 ```text
-dist-app/dsh-pet-desktop-0.4.0-portable.exe
+dist-app/dsh-pet-desktop-X.X.X.exe
 ```
 
 从仓库根目录看，对应路径为：
 
 ```text
-dsh-pet/dist-app/dsh-pet-desktop-0.4.0-portable.exe
+dsh-pet/dist-app/dsh-pet-desktop-X.X.X.exe
 ```
 
 分发或迁移时只复制这个 EXE 到 Windows x64 本地运行即可，不需要携带整个 `dist-app` 目录。

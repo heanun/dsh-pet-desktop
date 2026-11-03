@@ -46,8 +46,9 @@ export function createChatResizeDriver(opts: {
   maxWidth: () => number;
   maxHeight: () => number;
   onLayout: () => void;
+  onActiveChange?: (active: boolean) => void;
 }): ChatResizeDriver {
-  const { root, input, maxWidth, maxHeight, onLayout } = opts;
+  const { root, input, maxWidth, maxHeight, onLayout, onActiveChange } = opts;
   const bindings = [
     { handle: opts.handles.right, axis: 'width' },
     { handle: opts.handles.bottom, axis: 'height' },
@@ -74,6 +75,7 @@ export function createChatResizeDriver(opts: {
     const current = active;
     active = null;
     if (current.handle.hasPointerCapture(current.pointerId)) current.handle.releasePointerCapture(current.pointerId);
+    onActiveChange?.(false);
     onLayout();
   };
   const onPointerMove = (event: PointerEvent): void => {
@@ -122,6 +124,7 @@ export function createChatResizeDriver(opts: {
         startHeight: rect.height,
       };
       handle.setPointerCapture(event.pointerId);
+      onActiveChange?.(true);
     };
     const onHandleKeyDown = (event: KeyboardEvent): void => onKeyDown(event, axis);
     return { ...binding, onPointerDown, onHandleKeyDown };
