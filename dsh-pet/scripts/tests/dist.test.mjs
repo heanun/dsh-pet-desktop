@@ -12,8 +12,9 @@ const yaml = require('js-yaml');
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const { versionFromTags } = await import('../artifact-version.mjs');
 
-test('标签版本 → 支持 v/V 前缀并回退到包清单版本', () => {
-  assert.equal(versionFromTags(['V1.0.0', 'v0.4.0'], '0.4.0'), '1.0.0');
+test('标签版本 → 任意顺序和 v/V 前缀都取最高版本，无有效标签时回退', () => {
+  assert.equal(versionFromTags(['v0.4.0', 'V1.0.0'], '0.4.0'), '1.0.0');
+  assert.equal(versionFromTags(['V1.0.0', 'v1.0.10', 'v1.0.2'], '0.4.0'), '1.0.10');
   assert.equal(versionFromTags(['nightly', 'v1.0.0-beta.1'], '0.4.0'), '0.4.0');
   assert.equal(versionFromTags([], '0.4.0'), '0.4.0');
 });
